@@ -1,0 +1,496 @@
+---
+title: I/O Connectors
+description: Apache Beam I/O transforms for reading and writing data
+---
+
+Apache Beam provides I/O connectors for reading from and writing to various data sources and sinks.
+
+## Read
+
+Transform for reading from a Source.
+
+### Read.from(BoundedSource)
+
+Reads from a bounded source.
+
+```java
+public static <T> Bounded<T> from(BoundedSource<T> source)
+```
+
+<ParamField path="source" type="BoundedSource<T>" required>
+  The bounded source to read from
+</ParamField>
+
+<ResponseField name="transform" type="Bounded<T>">
+  A PTransform that reads from the source
+</ResponseField>
+
+**Example:**
+```java
+Pipeline p = Pipeline.create();
+PCollection<String> data = p.apply(
+    Read.from(new MyBoundedSource())
+);
+```
+
+### Read.from(UnboundedSource)
+
+Reads from an unbounded (streaming) source.
+
+```java
+public static <T> Unbounded<T> from(UnboundedSource<T, ?> source)
+```
+
+<ParamField path="source" type="UnboundedSource<T, ?>" required>
+  The unbounded source to read from
+</ParamField>
+
+<ResponseField name="transform" type="Unbounded<T>">
+  A PTransform that reads from the streaming source
+</ResponseField>
+
+## TextIO
+
+Transforms for reading and writing text files.
+
+### TextIO.read()
+
+Creates a read transform for text files.
+
+```java
+public static Read read()
+```
+
+<ResponseField name="read" type="Read">
+  A Read transform builder
+</ResponseField>
+
+#### from(String)
+
+Specifies the file path or pattern to read from.
+
+```java
+public Read from(String filepattern)
+```
+
+<ParamField path="filepattern" type="String" required>
+  File path or glob pattern (e.g., "gs://bucket/files*.txt")
+</ParamField>
+
+**Example:**
+```java
+PCollection<String> lines = pipeline.apply(
+    TextIO.read().from("/path/to/files*.txt")
+);
+```
+
+#### withDelimiter(byte[])
+
+Sets a custom delimiter for splitting records.
+
+```java
+public Read withDelimiter(byte[] delimiter)
+```
+
+<ParamField path="delimiter" type="byte[]" required>
+  The delimiter bytes (default is newline)
+</ParamField>
+
+#### withCompression(Compression)
+
+Specifies the compression type.
+
+```java
+public Read withCompression(Compression compression)
+```
+
+<ParamField path="compression" type="Compression" required>
+  The compression type (AUTO, GZIP, BZIP2, ZIP, DEFLATE, ZSTD, LZ4, LZOP, UNCOMPRESSED)
+</ParamField>
+
+**Example:**
+```java
+PCollection<String> lines = pipeline.apply(
+    TextIO.read()
+          .from("input.txt.gz")
+          .withCompression(Compression.GZIP)
+);
+```
+
+#### withEmptyMatchTreatment(EmptyMatchTreatment)
+
+Specifies how to handle empty file matches.
+
+```java
+public Read withEmptyMatchTreatment(
+    EmptyMatchTreatment emptyMatchTreatment)
+```
+
+<ParamField path="emptyMatchTreatment" type="EmptyMatchTreatment" required>
+  Treatment for empty matches (ALLOW, DISALLOW, ALLOW_IF_WILDCARD)
+</ParamField>
+
+#### watchForNewFiles(Duration, TerminationCondition)
+
+Continuously watches for new files matching the pattern.
+
+```java
+public Read watchForNewFiles(
+    Duration pollInterval,
+    TerminationCondition<String, ?> terminationCondition)
+```
+
+<ParamField path="pollInterval" type="Duration" required>
+  How often to check for new files
+</ParamField>
+
+<ParamField path="terminationCondition" type="TerminationCondition" required>
+  When to stop watching for new files
+</ParamField>
+
+**Example:**
+```java
+PCollection<String> lines = pipeline.apply(
+    TextIO.read()
+          .from("input*.txt")
+          .watchForNewFiles(
+              Duration.standardMinutes(1),
+              afterTimeSinceNewOutput(Duration.standardHours(1))
+          )
+);
+```
+
+### TextIO.write()
+
+Creates a write transform for text files.
+
+```java
+public static Write write()
+```
+
+<ResponseField name="write" type="Write">
+  A Write transform builder
+</ResponseField>
+
+#### to(String)
+
+Specifies the output file prefix.
+
+```java
+public Write to(String outputPrefix)
+```
+
+<ParamField path="outputPrefix" type="String" required>
+  The prefix for output files
+</ParamField>
+
+**Example:**
+```java
+lines.apply(
+    TextIO.write().to("/path/to/output")
+);
+```
+
+#### withSuffix(String)
+
+Sets the file suffix.
+
+```java
+public Write withSuffix(String suffix)
+```
+
+<ParamField path="suffix" type="String" required>
+  The file suffix (e.g., ".txt")
+</ParamField>
+
+#### withNumShards(int)
+
+Sets the number of output shards.
+
+```java
+public Write withNumShards(int numShards)
+```
+
+<ParamField path="numShards" type="int" required>
+  The number of output files to create (0 means runner-determined)
+</ParamField>
+
+#### withCompression(Compression)
+
+Sets the compression type for output files.
+
+```java
+public Write withCompression(Compression compression)
+```
+
+<ParamField path="compression" type="Compression" required>
+  The compression type
+</ParamField>
+
+**Example:**
+```java
+lines.apply(
+    TextIO.write()
+          .to("output/results")
+          .withSuffix(".txt")
+          .withNumShards(10)
+          .withCompression(Compression.GZIP)
+);
+```
+
+#### withHeader(String)
+
+Adds a header to each output file.
+
+```java
+public Write withHeader(String header)
+```
+
+<ParamField path="header" type="String" required>
+  The header line to write at the start of each file
+</ParamField>
+
+#### withFooter(String)
+
+Adds a footer to each output file.
+
+```java
+public Write withFooter(String footer)
+```
+
+<ParamField path="footer" type="String" required>
+  The footer line to write at the end of each file
+</ParamField>
+
+#### withWritableByteChannelFactory(WritableByteChannelFactory)
+
+Customizes how output channels are created.
+
+```java
+public Write withWritableByteChannelFactory(
+    WritableByteChannelFactory writableByteChannelFactory)
+```
+
+### TextIO.readFiles()
+
+Reads files that have already been matched.
+
+```java
+public static ReadFiles readFiles()
+```
+
+**Example:**
+```java
+PCollection<String> lines = pipeline
+    .apply(FileIO.match().filepattern("*.txt"))
+    .apply(FileIO.readMatches())
+    .apply(TextIO.readFiles());
+```
+
+## FileIO
+
+Low-level file I/O operations.
+
+### FileIO.match()
+
+Matches files based on a pattern.
+
+```java
+public static Match match()
+```
+
+**Example:**
+```java
+PCollection<MatchResult.Metadata> matches = pipeline.apply(
+    FileIO.match().filepattern("gs://bucket/*.csv")
+);
+```
+
+#### filepattern(String)
+
+Sets the file pattern to match.
+
+```java
+public Match filepattern(String filepattern)
+```
+
+<ParamField path="filepattern" type="String" required>
+  The glob pattern for files to match
+</ParamField>
+
+#### continuously(Duration, TerminationCondition)
+
+Continuously watches for new files.
+
+```java
+public Match continuously(
+    Duration pollInterval,
+    TerminationCondition<String, ?> terminationCondition)
+```
+
+### FileIO.readMatches()
+
+Reads matched files as ReadableFile objects.
+
+```java
+public static ReadMatches readMatches()
+```
+
+**Example:**
+```java
+PCollection<ReadableFile> files = pipeline
+    .apply(FileIO.match().filepattern("*.txt"))
+    .apply(FileIO.readMatches());
+```
+
+#### withCompression(Compression)
+
+Sets the compression for reading files.
+
+```java
+public ReadMatches withCompression(Compression compression)
+```
+
+#### withDirectoryTreatment(DirectoryTreatment)
+
+Specifies how to handle directories.
+
+```java
+public ReadMatches withDirectoryTreatment(
+    DirectoryTreatment directoryTreatment)
+```
+
+<ParamField path="directoryTreatment" type="DirectoryTreatment" required>
+  SKIP_DIRECTORIES or PROHIBIT_DIRECTORIES
+</ParamField>
+
+### FileIO.write()
+
+Writes elements to files.
+
+```java
+public static <UserT, DestinationT> Write<DestinationT, UserT> write()
+```
+
+**Example:**
+```java
+elements.apply(
+    FileIO.<String>write()
+          .via(TextIO.sink())
+          .to("output")
+);
+```
+
+#### via(Sink)
+
+Specifies the sink for writing elements.
+
+```java
+public <ElementT> TypedWrite<ElementT, DestinationT, UserT> via(
+    Sink<ElementT> sink)
+```
+
+#### to(String)
+
+Sets the output directory or prefix.
+
+```java
+public TypedWrite<ElementT, DestinationT, UserT> to(
+    String outputPrefix)
+```
+
+#### withNaming(FileNaming)
+
+Customizes output file naming.
+
+```java
+public TypedWrite<ElementT, DestinationT, UserT> withNaming(
+    SerializableFunction<UserT, FileNaming> namingFn)
+```
+
+#### withNumShards(int)
+
+Sets the number of output shards.
+
+```java
+public TypedWrite<ElementT, DestinationT, UserT> withNumShards(
+    int numShards)
+```
+
+#### withCompression(Compression)
+
+Sets output compression.
+
+```java
+public TypedWrite<ElementT, DestinationT, UserT> withCompression(
+    Compression compression)
+```
+
+## AvroIO
+
+Reads and writes Avro files.
+
+### AvroIO.read()
+
+```java
+public static <T> Read<T> read(Class<T> recordClass)
+```
+
+**Example:**
+```java
+PCollection<MyRecord> records = pipeline.apply(
+    AvroIO.read(MyRecord.class).from("data/*.avro")
+);
+```
+
+### AvroIO.write()
+
+```java
+public static <T> Write<T> write(Class<T> recordClass)
+```
+
+**Example:**
+```java
+records.apply(
+    AvroIO.write(MyRecord.class).to("output/data")
+);
+```
+
+## Complete Example
+
+```java
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.io.FileIO;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.MapElements;
+import org.apache.beam.sdk.values.TypeDescriptors;
+
+public class FileProcessing {
+    public static void main(String[] args) {
+        Pipeline p = Pipeline.create(
+            PipelineOptionsFactory.fromArgs(args).create()
+        );
+        
+        // Read from text files
+        p.apply("Read", TextIO.read()
+             .from("input/*.txt")
+             .withCompression(Compression.AUTO))
+         
+         // Process the data
+         .apply("ToUpper", MapElements
+             .into(TypeDescriptors.strings())
+             .via(String::toUpperCase))
+         
+         // Write to output files
+         .apply("Write", TextIO.write()
+             .to("output/results")
+             .withSuffix(".txt")
+             .withNumShards(5)
+             .withHeader("=== Results ===")
+             .withCompression(Compression.GZIP));
+        
+        p.run().waitUntilFinish();
+    }
+}
+```

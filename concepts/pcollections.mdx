@@ -1,0 +1,561 @@
+---
+title: PCollections
+description: Understanding PCollection - Apache Beam's distributed dataset abstraction
+---
+
+A `PCollection` (Parallel Collection) represents a distributed dataset that your Beam pipeline operates on. It is the fundamental data abstraction in Apache Beam.
+
+## What is a PCollection?
+
+From the Apache Beam source code:
+
+<CodeGroup>
+```java Java (PCollection.java:50-77)
+/**
+ * A {@link PCollection PCollection<T>} is an immutable collection of values of type {@code T}. 
+ * A {@link PCollection} can contain either a bounded or unbounded number of elements. 
+ * Bounded and unbounded {@link PCollection PCollections} are produced as the output of 
+ * {@link PTransform PTransforms}.
+ *
+ * Each element in a {@link PCollection} has an associated timestamp. Readers assign 
+ * timestamps to elements when they create {@link PCollection PCollections}, and other 
+ * {@link PTransform PTransforms} propagate these timestamps from their input to their output.
+ *
+ * Additionally, a {@link PCollection} has an associated {@link WindowFn} and each element 
+ * is assigned to a set of windows. By default, the windowing function is {@link GlobalWindows} 
+ * and all elements are assigned into a single default window.
+ */
+```
+
+```python Python (pvalue.py:142-146)
+class PCollection(PValue, Generic[T]):
+    """A multiple values (potentially huge) container.
+    
+    Dataflow users should not construct PCollection objects directly in their
+    pipelines.
+    """
+```
+
+```go Go
+// PCollection represents a distributed dataset.
+// Users should not construct PCollections directly.
+type PCollection struct {
+    n *graph.Node
+}
+```
+</CodeGroup>
+
+## Key Characteristics
+
+### 1. Immutability
+
+PCollections are **immutable**. Once created, you cannot modify a PCollection's contents. Transforms create new PCollections instead:
+
+```java
+PCollection<String> lines = p.apply(TextIO.read().from("input.txt"));
+// This creates a NEW PCollection, doesn't modify 'lines'
+PCollection<String> words = lines.apply(new ExtractWords());
+```
+
+<Note>
+Immutability enables parallel processing and fault tolerance. Beam can retry failed operations safely because data doesn't change.
+</Note>
+
+### 2. Distributed
+
+PCollections are distributed across multiple workers. You don't control where elements are processed:
+
+```python
+# Elements are automatically distributed
+lines = p | beam.io.ReadFromText('large_file.txt')  # Millions of lines
+# Beam distributes these across available workers
+```
+
+### 3. Element Types
+
+PCollections are strongly typed:
+
+<CodeGroup>
+```java Java
+PCollection<String> strings = ...;        // Collection of strings
+PCollection<Integer> numbers = ...;       // Collection of integers
+PCollection<KV<String, Integer>> pairs = ...;  // Key-value pairs
+PCollection<MyCustomClass> objects = ...; // Custom objects
+```
+
+```python Python
+import apache_beam as beam
+from typing import Tuple
+
+# Type hints (optional but recommended)
+strings: beam.PCollection[str] = ...
+numbers: beam.PCollection[int] = ...
+pairs: beam.PCollection[Tuple[str, int]] = ...
+```
+
+```go Go
+// Go uses reflection for type safety
+var strings beam.PCollection  // of string
+var numbers beam.PCollection  // of int  
+var pairs beam.PCollection    // of KV<string, int>
+```
+</CodeGroup>
+
+## Bounded vs Unbounded PCollections
+
+### Bounded PCollections (Batch)
+
+Bounded PCollections have a **fixed size** - they represent finite datasets:
+
+<CodeGroup>
+```java Java
+// Reading a file creates a bounded PCollection
+PCollection<String> lines = p.apply(
+    TextIO.read().from("gs://bucket/file.txt"));
+
+// Creating from in-memory data
+PCollection<String> words = p.apply(
+    Create.of("hello", "world", "beam"));
+```
+
+```python Python
+# Reading a file
+lines = p | beam.io.ReadFromText('file.txt')
+
+# Creating from in-memory data
+words = p | beam.Create(['hello', 'world', 'beam'])
+```
+
+```go Go
+// Reading a file
+lines := textio.Read(s, "file.txt")
+
+// Creating from in-memory data  
+words := beam.Create(s, "hello", "world", "beam")
+```
+</CodeGroup>
+
+### Unbounded PCollections (Streaming)
+
+Unbounded PCollections have **infinite size** - they represent continuous data streams:
+
+<CodeGroup>
+```java Java
+// Reading from Pub/Sub creates unbounded PCollection
+PCollection<String> messages = p.apply(
+    PubsubIO.readStrings()
+        .fromTopic("projects/myproject/topics/mytopic"));
+
+// Reading from Kafka
+PCollection<KV<Long, String>> records = p.apply(
+    KafkaIO.<Long, String>read()
+        .withBootstrapServers("localhost:9092")
+        .withTopic("my-topic")
+        .withKeyDeserializer(LongDeserializer.class)
+        .withValueDeserializer(StringDeserializer.class));
+```
+
+```python Python
+# Reading from Pub/Sub
+messages = p | beam.io.ReadFromPubSub(
+    topic='projects/myproject/topics/mytopic')
+
+# Reading from Kafka
+records = p | beam.io.ReadFromKafka(
+    consumer_config={'bootstrap.servers': 'localhost:9092'},
+    topics=['my-topic'])
+```
+
+```go Go
+// Reading from Pub/Sub (via cross-language)
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/io/xlang/pubsubio"
+
+messages := pubsubio.Read(s, "project", "topic", nil)
+```
+</CodeGroup>
+
+<Info>
+The same transforms work on both bounded and unbounded PCollections. Windowing and triggering become more important for unbounded data.
+</Info>
+
+## Element Properties
+
+### Timestamps
+
+Every element in a PCollection has an associated timestamp:
+
+<CodeGroup>
+```java Java
+// Elements get timestamps from the source
+PCollection<String> lines = p.apply(TextIO.read()...);
+// Default timestamp for file elements is MIN_TIMESTAMP
+
+// You can assign custom timestamps
+PCollection<String> timestamped = lines.apply(
+    ParDo.of(new DoFn<String, String>() {
+        @ProcessElement
+        public void processElement(
+            @Element String element,
+            OutputReceiver<String> out) {
+            Instant timestamp = new Instant();
+            out.outputWithTimestamp(element, timestamp);
+        }
+    }));
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+
+class AddTimestampDoFn(beam.DoFn):
+    def process(self, element):
+        # Emit element with current time as timestamp
+        yield window.TimestampedValue(element, time.time())
+
+timestamped = lines | beam.ParDo(AddTimestampDoFn())
+```
+
+```go Go
+// Access timestamp in DoFn
+func processWithTimestamp(et beam.EventTime, element string) string {
+    timestamp := et.ToTime()
+    // Use timestamp
+    return element
+}
+
+processed := beam.ParDo(s, processWithTimestamp, input)
+```
+</CodeGroup>
+
+### Windows
+
+Elements are organized into windows for processing:
+
+```java
+// Default: all elements in a single global window
+PCollection<String> data = ...;
+
+// Apply fixed-time windows
+PCollection<String> windowed = data.apply(
+    Window.into(FixedWindows.of(Duration.standardMinutes(5))));
+```
+
+<Tip>
+Windowing is covered in detail in the [Windowing](/concepts/windowing) section.
+</Tip>
+
+## Creating PCollections
+
+### From External Sources
+
+Most commonly, PCollections are created by reading from external sources:
+
+<Tabs>
+  <Tab title="Text Files">
+    <CodeGroup>
+    ```java Java
+    PCollection<String> lines = p.apply(
+        TextIO.read().from("gs://bucket/*.txt"));
+    ```
+    
+    ```python Python
+    lines = p | beam.io.ReadFromText('gs://bucket/*.txt')
+    ```
+    
+    ```go Go
+    lines := textio.Read(s, "gs://bucket/*.txt")
+    ```
+    </CodeGroup>
+  </Tab>
+  
+  <Tab title="BigQuery">
+    <CodeGroup>
+    ```java Java
+    PCollection<TableRow> rows = p.apply(
+        BigQueryIO.readTableRows()
+            .from("project:dataset.table"));
+    ```
+    
+    ```python Python
+    rows = p | beam.io.ReadFromBigQuery(
+        table='project:dataset.table')
+    ```
+    </CodeGroup>
+  </Tab>
+  
+  <Tab title="Pub/Sub">
+    <CodeGroup>
+    ```java Java
+    PCollection<String> messages = p.apply(
+        PubsubIO.readStrings()
+            .fromTopic("projects/myproject/topics/mytopic"));
+    ```
+    
+    ```python Python
+    messages = p | beam.io.ReadFromPubSub(
+        topic='projects/myproject/topics/mytopic')
+    ```
+    </CodeGroup>
+  </Tab>
+  
+  <Tab title="Kafka">
+    <CodeGroup>
+    ```java Java
+    PCollection<KV<Long, String>> records = p.apply(
+        KafkaIO.<Long, String>read()
+            .withBootstrapServers("localhost:9092")
+            .withTopic("topic")
+            .withKeyDeserializer(LongDeserializer.class)
+            .withValueDeserializer(StringDeserializer.class));
+    ```
+    
+    ```python Python
+    records = p | beam.io.ReadFromKafka(
+        consumer_config={'bootstrap.servers': 'localhost:9092'},
+        topics=['topic'])
+    ```
+    </CodeGroup>
+  </Tab>
+</Tabs>
+
+### From In-Memory Data
+
+For testing or small datasets, create PCollections from in-memory data:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.Create;
+
+// Create from varargs
+PCollection<String> words = p.apply(
+    Create.of("hello", "world", "beam"));
+
+// Create from collection
+List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5);
+PCollection<Integer> pNumbers = p.apply(Create.of(numbers));
+
+// Create with timestamps
+PCollection<String> timestamped = p.apply(
+    Create.timestamped(
+        TimestampedValue.of("hello", new Instant(0)),
+        TimestampedValue.of("world", new Instant(1000))));
+```
+
+```python Python
+import apache_beam as beam
+
+# Create from list
+words = p | beam.Create(['hello', 'world', 'beam'])
+
+# Create from range
+numbers = p | beam.Create(range(1, 6))
+
+# Create with timestamps
+from apache_beam.transforms.window import TimestampedValue
+timestamped = p | beam.Create([
+    TimestampedValue('hello', 0),
+    TimestampedValue('world', 1)
+])
+```
+
+```go Go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam"
+
+// Create from elements
+words := beam.Create(s, "hello", "world", "beam")
+
+// Create from slice
+numbers := []int{1, 2, 3, 4, 5}
+pNumbers := beam.CreateList(s, numbers)
+```
+</CodeGroup>
+
+## Working with PCollections
+
+### Applying Transforms
+
+Transforms are applied using the `apply()` method (or `|` operator in Python):
+
+<CodeGroup>
+```java Java
+PCollection<String> input = ...;
+
+// Apply a single transform
+PCollection<Integer> lengths = input.apply(
+    MapElements.into(TypeDescriptors.integers())
+        .via(String::length));
+
+// Chain multiple transforms
+PCollection<KV<String, Long>> result = input
+    .apply("Split", ParDo.of(new SplitWords()))
+    .apply("Count", Count.perElement());
+```
+
+```python Python
+input_data = ...
+
+# Apply a single transform
+lengths = input_data | beam.Map(len)
+
+# Chain multiple transforms
+result = (
+    input_data
+    | 'Split' >> beam.ParDo(SplitWords())
+    | 'Count' >> beam.combiners.Count.PerElement()
+)
+```
+
+```go Go
+input := ...
+
+// Apply transforms
+lengths := beam.ParDo(s, func(s string) int { return len(s) }, input)
+
+// Chain transforms
+words := beam.ParDo(s.Scope("Split"), splitWordsFn, input)
+result := stats.Count(s.Scope("Count"), words)
+```
+</CodeGroup>
+
+### Element-wise Transforms
+
+Process each element independently:
+
+```java
+PCollection<String> upper = strings.apply(
+    MapElements.into(TypeDescriptors.strings())
+        .via(String::toUpperCase));
+
+PCollection<String> filtered = strings.apply(
+    Filter.by(s -> s.length() > 5));
+```
+
+### Aggregating Transforms
+
+Combine elements together:
+
+```java
+// Count elements
+PCollection<Long> count = strings.apply(Count.globally());
+
+// Group by key
+PCollection<KV<String, Integer>> pairs = ...;
+PCollection<KV<String, Iterable<Integer>>> grouped = 
+    pairs.apply(GroupByKey.create());
+
+// Combine values
+PCollection<KV<String, Integer>> sums = 
+    pairs.apply(Sum.integersPerKey());
+```
+
+## Coders
+
+Coders specify how to serialize PCollection elements. Beam usually infers coders automatically:
+
+<CodeGroup>
+```java Java
+// Beam infers coder for common types
+PCollection<String> strings = ...;  // Uses StringUtf8Coder
+PCollection<Integer> ints = ...;    // Uses VarIntCoder
+
+// Explicitly set a coder if needed
+PCollection<MyClass> objects = input
+    .apply(...)
+    .setCoder(MyClassCoder.of());
+```
+
+```python Python
+# Beam infers coders automatically
+strings = ...  # Uses BytesCoder for strings
+numbers = ...  # Uses VarIntCoder for integers
+
+# Explicit coder (rarely needed)
+from apache_beam import coders
+objects = input.apply(...).with_output_types(MyClass)
+```
+</CodeGroup>
+
+<Warning>
+Custom classes need custom coders. Ensure your classes are serializable or provide a custom coder.
+</Warning>
+
+## Best Practices
+
+<Note>
+**Size considerations**: PCollections can be huge. Never try to collect all elements into memory using a local collection.
+</Note>
+
+<Tip>
+**Type safety**: Use type descriptors (Java) or type hints (Python) to catch type errors early.
+</Tip>
+
+### Do's and Don'ts
+
+**Do:**
+- ✅ Apply transforms to process PCollections
+- ✅ Use descriptive names for intermediate PCollections
+- ✅ Leverage Beam's built-in transforms when possible
+- ✅ Test with small datasets using `Create`
+
+**Don't:**
+- ❌ Try to iterate over a PCollection locally
+- ❌ Modify elements in place (use transforms)
+- ❌ Access PCollection size directly (use `Count`)
+- ❌ Make assumptions about element order
+
+## Debugging PCollections
+
+To inspect PCollection contents during development:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.DoFn;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+class LoggingDoFn<T> extends DoFn<T, T> {
+    private static final Logger LOG = LoggerFactory.getLogger(LoggingDoFn.class);
+    
+    @ProcessElement
+    public void processElement(@Element T element, OutputReceiver<T> out) {
+        LOG.info("Element: {}", element);
+        out.output(element);
+    }
+}
+
+// Use it
+PCollection<String> logged = input.apply(ParDo.of(new LoggingDoFn<>()));
+```
+
+```python Python
+import logging
+
+class LoggingDoFn(beam.DoFn):
+    def process(self, element):
+        logging.info('Element: %s', element)
+        yield element
+
+# Use it
+logged = input | beam.ParDo(LoggingDoFn())
+```
+
+```go Go
+func logElement(element string) string {
+    log.Printf("Element: %s", element)
+    return element
+}
+
+logged := beam.ParDo(s, logElement, input)
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Transforms" icon="arrows-turn-right" href="/concepts/transforms">
+    Learn how to transform PCollections
+  </Card>
+  <Card title="Windowing" icon="window-restore" href="/concepts/windowing">
+    Divide unbounded PCollections into windows
+  </Card>
+</CardGroup>

@@ -1,0 +1,596 @@
+---
+title: Coders
+description: Apache Beam Coder API for encoding and decoding data elements
+---
+
+Coders define how to encode and decode values in Apache Beam pipelines. They are used to serialize data when it needs to be materialized, such as when data is shuffled between workers or written to external storage.
+
+## Coder
+
+The abstract base class for all coders.
+
+```java
+public abstract class Coder<T> implements Serializable
+```
+
+### Core Methods
+
+#### encode()
+
+Encodes a value to an output stream.
+
+```java
+public abstract void encode(T value, OutputStream outStream)
+    throws CoderException, IOException
+```
+
+<ParamField path="value" type="T" required>
+  The value to encode
+</ParamField>
+
+<ParamField path="outStream" type="OutputStream" required>
+  The output stream to write encoded bytes to
+</ParamField>
+
+**Example:**
+```java
+Coder<String> coder = StringUtf8Coder.of();
+ByteArrayOutputStream output = new ByteArrayOutputStream();
+coder.encode("hello", output);
+byte[] encoded = output.toByteArray();
+```
+
+#### decode()
+
+Decodes a value from an input stream.
+
+```java
+public abstract T decode(InputStream inStream)
+    throws CoderException, IOException
+```
+
+<ParamField path="inStream" type="InputStream" required>
+  The input stream to read encoded bytes from
+</ParamField>
+
+<ResponseField name="value" type="T">
+  The decoded value
+</ResponseField>
+
+**Example:**
+```java
+Coder<String> coder = StringUtf8Coder.of();
+ByteArrayInputStream input = new ByteArrayInputStream(encoded);
+String decoded = coder.decode(input);
+```
+
+#### getCoderArguments()
+
+Returns the component coders for parameterized types.
+
+```java
+public abstract List<? extends Coder<?>> getCoderArguments()
+```
+
+<ResponseField name="coders" type="List<? extends Coder<?>>">
+  List of component coders, or empty list if not parameterized
+</ResponseField>
+
+**Example:**
+```java
+Coder<List<String>> listCoder = ListCoder.of(StringUtf8Coder.of());
+List<? extends Coder<?>> components = listCoder.getCoderArguments();
+// components contains [StringUtf8Coder.of()]
+```
+
+#### verifyDeterministic()
+
+Verifies that this coder is deterministic.
+
+```java
+public abstract void verifyDeterministic()
+    throws NonDeterministicException
+```
+
+Deterministic coders must satisfy:
+- Two values that compare as equal produce the same encoding
+- The coder always produces a canonical encoding
+
+**Example:**
+```java
+try {
+    coder.verifyDeterministic();
+    // Coder is deterministic
+} catch (NonDeterministicException e) {
+    // Coder is not deterministic
+}
+```
+
+#### consistentWithEquals()
+
+Returns whether this coder is consistent with equals.
+
+```java
+public boolean consistentWithEquals()
+```
+
+<ResponseField name="consistent" type="boolean">
+  True if equal encoded bytes implies equal values
+</ResponseField>
+
+#### structuralValue()
+
+Returns an object with structural equality for the given value.
+
+```java
+public Object structuralValue(T value)
+```
+
+<ParamField path="value" type="T" required>
+  The value to get structural representation for
+</ParamField>
+
+<ResponseField name="structural" type="Object">
+  An object whose equals() represents structural equality
+</ResponseField>
+
+## Common Coder Implementations
+
+### StringUtf8Coder
+
+Encodes strings in UTF-8.
+
+```java
+public class StringUtf8Coder extends AtomicCoder<String>
+```
+
+#### of()
+
+Returns the singleton instance.
+
+```java
+public static StringUtf8Coder of()
+```
+
+**Example:**
+```java
+Coder<String> coder = StringUtf8Coder.of();
+PCollection<String> strings = ...
+strings.setCoder(coder);
+```
+
+### VarIntCoder
+
+Encodes integers using variable-length encoding (1-5 bytes).
+
+```java
+public class VarIntCoder extends AtomicCoder<Integer>
+```
+
+#### of()
+
+Returns the singleton instance.
+
+```java
+public static VarIntCoder of()
+```
+
+**Example:**
+```java
+Coder<Integer> coder = VarIntCoder.of();
+```
+
+**Note:** Negative numbers always take 5 bytes. Use `BigEndianIntegerCoder` if numbers are often large or negative.
+
+### VarLongCoder
+
+Encodes longs using variable-length encoding.
+
+```java
+public class VarLongCoder extends AtomicCoder<Long>
+```
+
+#### of()
+
+```java
+public static VarLongCoder of()
+```
+
+### DoubleCoder
+
+Encodes doubles as 8 bytes.
+
+```java
+public class DoubleCoder extends AtomicCoder<Double>
+```
+
+#### of()
+
+```java
+public static DoubleCoder of()
+```
+
+### BooleanCoder
+
+Encodes booleans as a single byte.
+
+```java
+public class BooleanCoder extends AtomicCoder<Boolean>
+```
+
+#### of()
+
+```java
+public static BooleanCoder of()
+```
+
+### ByteArrayCoder
+
+Encodes byte arrays with length prefix.
+
+```java
+public class ByteArrayCoder extends AtomicCoder<byte[]>
+```
+
+#### of()
+
+```java
+public static ByteArrayCoder of()
+```
+
+### InstantCoder
+
+Encodes Joda-Time Instant values.
+
+```java
+public class InstantCoder extends AtomicCoder<Instant>
+```
+
+#### of()
+
+```java
+public static InstantCoder of()
+```
+
+## Composite Coders
+
+### ListCoder
+
+Encodes lists of elements.
+
+```java
+public class ListCoder<T> extends StructuredCoder<List<T>>
+```
+
+#### of(Coder)
+
+Creates a list coder for the given element coder.
+
+```java
+public static <T> ListCoder<T> of(Coder<T> elementCoder)
+```
+
+<ParamField path="elementCoder" type="Coder<T>" required>
+  The coder for list elements
+</ParamField>
+
+**Example:**
+```java
+Coder<List<String>> listCoder = ListCoder.of(StringUtf8Coder.of());
+```
+
+### SetCoder
+
+Encodes sets of elements.
+
+```java
+public class SetCoder<T> extends StructuredCoder<Set<T>>
+```
+
+#### of(Coder)
+
+```java
+public static <T> SetCoder<T> of(Coder<T> elementCoder)
+```
+
+### MapCoder
+
+Encodes maps.
+
+```java
+public class MapCoder<K, V> extends StructuredCoder<Map<K, V>>
+```
+
+#### of(Coder, Coder)
+
+Creates a map coder.
+
+```java
+public static <K, V> MapCoder<K, V> of(
+    Coder<K> keyCoder,
+    Coder<V> valueCoder)
+```
+
+<ParamField path="keyCoder" type="Coder<K>" required>
+  The coder for map keys
+</ParamField>
+
+<ParamField path="valueCoder" type="Coder<V>" required>
+  The coder for map values
+</ParamField>
+
+**Example:**
+```java
+Coder<Map<String, Integer>> mapCoder = MapCoder.of(
+    StringUtf8Coder.of(),
+    VarIntCoder.of()
+);
+```
+
+### KvCoder
+
+Encodes key-value pairs.
+
+```java
+public class KvCoder<K, V> extends StructuredCoder<KV<K, V>>
+```
+
+#### of(Coder, Coder)
+
+Creates a KV coder.
+
+```java
+public static <K, V> KvCoder<K, V> of(
+    Coder<K> keyCoder,
+    Coder<V> valueCoder)
+```
+
+<ParamField path="keyCoder" type="Coder<K>" required>
+  The coder for keys
+</ParamField>
+
+<ParamField path="valueCoder" type="Coder<V>" required>
+  The coder for values
+</ParamField>
+
+**Example:**
+```java
+Coder<KV<String, Integer>> kvCoder = KvCoder.of(
+    StringUtf8Coder.of(),
+    VarIntCoder.of()
+);
+```
+
+### IterableCoder
+
+Encodes iterables of elements.
+
+```java
+public class IterableCoder<T> extends StructuredCoder<Iterable<T>>
+```
+
+#### of(Coder)
+
+```java
+public static <T> IterableCoder<T> of(Coder<T> elementCoder)
+```
+
+### NullableCoder
+
+Wraps a coder to handle null values.
+
+```java
+public class NullableCoder<T> extends StructuredCoder<T>
+```
+
+#### of(Coder)
+
+```java
+public static <T> NullableCoder<T> of(Coder<T> valueCoder)
+```
+
+<ParamField path="valueCoder" type="Coder<T>" required>
+  The coder for non-null values
+</ParamField>
+
+**Example:**
+```java
+Coder<String> nullableCoder = NullableCoder.of(StringUtf8Coder.of());
+```
+
+## CoderRegistry
+
+Manages coder inference and registration.
+
+```java
+public class CoderRegistry
+```
+
+### Methods
+
+#### createDefault()
+
+Creates a registry with default coders.
+
+```java
+public static CoderRegistry createDefault()
+```
+
+**Example:**
+```java
+CoderRegistry registry = CoderRegistry.createDefault();
+```
+
+#### getCoder(TypeDescriptor)
+
+Infers a coder for a type.
+
+```java
+public <T> Coder<T> getCoder(TypeDescriptor<T> typeDescriptor)
+    throws CannotProvideCoderException
+```
+
+<ParamField path="typeDescriptor" type="TypeDescriptor<T>" required>
+  The type to get a coder for
+</ParamField>
+
+<ResponseField name="coder" type="Coder<T>">
+  The inferred coder
+</ResponseField>
+
+**Example:**
+```java
+CoderRegistry registry = pipeline.getCoderRegistry();
+Coder<String> coder = registry.getCoder(
+    TypeDescriptor.of(String.class)
+);
+```
+
+#### registerCoderProvider(CoderProvider)
+
+Registers a custom coder provider.
+
+```java
+public void registerCoderProvider(CoderProvider coderProvider)
+```
+
+<ParamField path="coderProvider" type="CoderProvider" required>
+  The coder provider to register
+</ParamField>
+
+#### registerCoderForClass(Class, Coder)
+
+Registers a coder for a specific class.
+
+```java
+public <T> void registerCoderForClass(
+    Class<T> clazz,
+    Coder<T> coder)
+```
+
+<ParamField path="clazz" type="Class<T>" required>
+  The class to register the coder for
+</ParamField>
+
+<ParamField path="coder" type="Coder<T>" required>
+  The coder to use for the class
+</ParamField>
+
+**Example:**
+```java
+CoderRegistry registry = pipeline.getCoderRegistry();
+registry.registerCoderForClass(
+    MyCustomType.class,
+    MyCustomCoder.of()
+);
+```
+
+## Custom Coder Example
+
+Creating a custom coder:
+
+```java
+import org.apache.beam.sdk.coders.AtomicCoder;
+import org.apache.beam.sdk.coders.CoderException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+public class MyCustomCoder extends AtomicCoder<MyCustomType> {
+    
+    private static final MyCustomCoder INSTANCE = new MyCustomCoder();
+    
+    public static MyCustomCoder of() {
+        return INSTANCE;
+    }
+    
+    private MyCustomCoder() {}
+    
+    @Override
+    public void encode(MyCustomType value, OutputStream outStream)
+            throws CoderException, IOException {
+        // Encode the value's fields
+        StringUtf8Coder.of().encode(value.getName(), outStream);
+        VarIntCoder.of().encode(value.getId(), outStream);
+    }
+    
+    @Override
+    public MyCustomType decode(InputStream inStream)
+            throws CoderException, IOException {
+        // Decode the fields
+        String name = StringUtf8Coder.of().decode(inStream);
+        int id = VarIntCoder.of().decode(inStream);
+        return new MyCustomType(name, id);
+    }
+    
+    @Override
+    public void verifyDeterministic() throws NonDeterministicException {
+        // This coder is deterministic
+    }
+    
+    @Override
+    public List<? extends Coder<?>> getCoderArguments() {
+        return Collections.emptyList();
+    }
+}
+```
+
+## Using Coders with @DefaultCoder
+
+Annotate your class to specify a default coder:
+
+```java
+import org.apache.beam.sdk.coders.DefaultCoder;
+
+@DefaultCoder(MyCustomCoder.class)
+public class MyCustomType {
+    private String name;
+    private int id;
+    
+    // Constructor, getters, setters
+}
+```
+
+## Complete Example
+
+```java
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.*;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.transforms.Create;
+
+public class CoderExample {
+    public static void main(String[] args) {
+        Pipeline p = Pipeline.create();
+        
+        // Create data with explicit coder
+        PCollection<String> strings = p.apply(
+            Create.of("hello", "world")
+                  .withCoder(StringUtf8Coder.of())
+        );
+        
+        // Create KV data with composite coder
+        Coder<KV<String, Integer>> kvCoder = KvCoder.of(
+            StringUtf8Coder.of(),
+            VarIntCoder.of()
+        );
+        
+        PCollection<KV<String, Integer>> kvs = p.apply(
+            Create.of(
+                KV.of("a", 1),
+                KV.of("b", 2)
+            ).withCoder(kvCoder)
+        );
+        
+        // Use coder registry
+        CoderRegistry registry = p.getCoderRegistry();
+        registry.registerCoderForClass(
+            MyClass.class,
+            MyClassCoder.of()
+        );
+        
+        p.run();
+    }
+}
+```

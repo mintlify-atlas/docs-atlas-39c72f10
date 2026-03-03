@@ -1,0 +1,750 @@
+---
+title: 'Transforms'
+description: 'Data transformation operations in Apache Beam pipelines'
+---
+
+Transforms are the operations that process data in your Beam pipeline. A `PTransform` takes one or more PCollections as input and produces one or more PCollections as output.
+
+## What is a PTransform?
+
+From the Apache Beam source code:
+
+<CodeGroup>
+```java Java (PTransform.java:45-78)
+/**
+ * A {@code PTransform<InputT, OutputT>} is an operation that takes an {@code InputT} 
+ * (some subtype of {@link PInput}) and produces an {@code OutputT} (some subtype of 
+ * {@link POutput}).
+ *
+ * PTransforms include root PTransforms like TextIO.Read, processing and conversion 
+ * operations like ParDo, GroupByKey, Combine, and Count, and outputting PTransforms 
+ * like TextIO.Write.
+ *
+ * Example usage:
+ * PCollection<T1> pc1 = ...;
+ * PCollection<T2> pc2 =
+ *     pc1.apply(ParDo.of(new MyDoFn<T1,KV<K,V>>()))
+ *        .apply(GroupByKey.<K, V>create())
+ *        .apply(Combine.perKey(new MyKeyedCombineFn<K,V>()))
+ *        .apply(ParDo.of(new MyDoFn2<KV<K,V>,T2>()));
+ */
+```
+
+```python Python (ptransform.py)
+class PTransform(WithTypeHints, HasDisplayData, Generic[InputT, OutputT]):
+    """A data processing operation or transformation.
+    
+    A PTransform can be applied to one or more PCollections to produce
+    one or more output PCollections.
+    """
+```
+</CodeGroup>
+
+## Core Transform Types
+
+Beam provides several categories of built-in transforms:
+
+### 1. Element-wise Transforms
+
+Process each element independently.
+
+### 2. Aggregating Transforms  
+
+Combine multiple elements into aggregated results.
+
+### 3. Composite Transforms
+
+Combine multiple transforms into reusable components.
+
+### 4. I/O Transforms
+
+Read from and write to external systems.
+
+## ParDo
+
+ParDo is the most general transform - it processes each element with a user-defined function (DoFn).
+
+### Basic ParDo
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.ParDo;
+
+static class ComputeLengthFn extends DoFn<String, Integer> {
+    @ProcessElement
+    public void processElement(@Element String word, OutputReceiver<Integer> out) {
+        out.output(word.length());
+    }
+}
+
+PCollection<String> words = ...;
+PCollection<Integer> lengths = words.apply(ParDo.of(new ComputeLengthFn()));
+```
+
+```python Python
+import apache_beam as beam
+
+class ComputeLengthFn(beam.DoFn):
+    def process(self, word):
+        yield len(word)
+
+words = ...
+lengths = words | beam.ParDo(ComputeLengthFn())
+
+# Or use a simple function
+lengths = words | beam.Map(len)
+```
+
+```go Go
+func computeLength(word string) int {
+    return len(word)
+}
+
+words := ...
+lengths := beam.ParDo(s, computeLength, words)
+```
+</CodeGroup>
+
+### DoFn Lifecycle
+
+DoFns have a lifecycle with several methods:
+
+<CodeGroup>
+```java Java
+class MyDoFn extends DoFn<String, String> {
+    
+    @Setup
+    public void setup() {
+        // Called once per DoFn instance before processing
+        // Initialize expensive resources
+    }
+    
+    @StartBundle
+    public void startBundle() {
+        // Called at the start of each bundle
+    }
+    
+    @ProcessElement  
+    public void processElement(@Element String element, OutputReceiver<String> out) {
+        // Called for each element
+        out.output(element.toUpperCase());
+    }
+    
+    @FinishBundle
+    public void finishBundle(FinishBundleContext context) {
+        // Called at the end of each bundle
+    }
+    
+    @Teardown
+    public void teardown() {
+        // Called once per DoFn instance after processing
+        // Clean up resources
+    }
+}
+```
+
+```python Python
+class MyDoFn(beam.DoFn):
+    
+    def setup(self):
+        # Called once per DoFn instance before processing
+        self.client = create_expensive_client()
+    
+    def start_bundle(self):
+        # Called at the start of each bundle
+        self.batch = []
+    
+    def process(self, element):
+        # Called for each element
+        yield element.upper()
+    
+    def finish_bundle(self):
+        # Called at the end of each bundle
+        if self.batch:
+            self.client.send_batch(self.batch)
+    
+    def teardown(self):
+        # Called once per DoFn instance after processing
+        self.client.close()
+```
+
+```go Go
+type MyDoFn struct {
+    Client *ExpensiveClient
+}
+
+func (fn *MyDoFn) Setup() error {
+    fn.Client = CreateExpensiveClient()
+    return nil
+}
+
+func (fn *MyDoFn) ProcessElement(element string) string {
+    return strings.ToUpper(element)
+}
+
+func (fn *MyDoFn) Teardown() error {
+    return fn.Client.Close()
+}
+```
+</CodeGroup>
+
+<Warning>
+**DoFn restrictions**: DoFns must be serializable and thread-safe. Avoid mutable shared state.
+</Warning>
+
+### Multiple Outputs
+
+DoFns can output to multiple PCollections:
+
+<CodeGroup>
+```java Java
+final TupleTag<Integer> evenTag = new TupleTag<Integer>(){};
+final TupleTag<Integer> oddTag = new TupleTag<Integer>(){};
+
+PCollectionTuple results = numbers.apply(
+    ParDo.of(new DoFn<Integer, Integer>() {
+        @ProcessElement
+        public void processElement(@Element Integer number, MultiOutputReceiver out) {
+            if (number % 2 == 0) {
+                out.get(evenTag).output(number);
+            } else {
+                out.get(oddTag).output(number);
+            }
+        }
+    }).withOutputTags(evenTag, TupleTagList.of(oddTag))
+);
+
+PCollection<Integer> evens = results.get(evenTag);
+PCollection<Integer> odds = results.get(oddTag);
+```
+
+```python Python
+class SplitEvenOddDoFn(beam.DoFn):
+    EVEN_TAG = 'even'
+    ODD_TAG = 'odd'
+    
+    def process(self, number):
+        if number % 2 == 0:
+            yield beam.pvalue.TaggedOutput(self.EVEN_TAG, number)
+        else:
+            yield beam.pvalue.TaggedOutput(self.ODD_TAG, number)
+
+results = numbers | beam.ParDo(SplitEvenOddDoFn()).with_outputs(
+    SplitEvenOddDoFn.EVEN_TAG,
+    SplitEvenOddDoFn.ODD_TAG
+)
+
+evens = results[SplitEvenOddDoFn.EVEN_TAG]
+odds = results[SplitEvenOddDoFn.ODD_TAG]
+```
+</CodeGroup>
+
+## Common Built-in Transforms
+
+### Map
+
+Apply a simple function to each element:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.MapElements;
+import org.apache.beam.sdk.values.TypeDescriptors;
+
+// Using MapElements
+PCollection<Integer> lengths = words.apply(
+    MapElements.into(TypeDescriptors.integers())
+        .via(String::length));
+
+// Using lambda
+PCollection<String> upper = words.apply(
+    MapElements.into(TypeDescriptors.strings())
+        .via(word -> word.toUpperCase()));
+```
+
+```python Python
+# Using Map
+lengths = words | beam.Map(len)
+upper = words | beam.Map(str.upper)
+
+# With lambda
+squares = numbers | beam.Map(lambda x: x * x)
+```
+
+```go Go
+lengths := beam.ParDo(s, func(word string) int {
+    return len(word)
+}, words)
+
+upper := beam.ParDo(s, strings.ToUpper, words)
+```
+</CodeGroup>
+
+### FlatMap
+
+Produce zero or more outputs per input:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.FlatMapElements;
+import java.util.Arrays;
+
+PCollection<String> words = lines.apply(
+    FlatMapElements.into(TypeDescriptors.strings())
+        .via((String line) -> Arrays.asList(line.split("\\s+"))));
+```
+
+```python Python
+# Split lines into words
+words = lines | beam.FlatMap(lambda line: line.split())
+
+# Can produce any number of outputs
+import re
+words = lines | beam.FlatMap(lambda line: re.findall(r'[A-Za-z]+', line))
+```
+
+```go Go
+func extractWords(line string, emit func(string)) {
+    for _, word := range strings.Fields(line) {
+        emit(word)
+    }
+}
+
+words := beam.ParDo(s, extractWords, lines)
+```
+</CodeGroup>
+
+### Filter
+
+Keep only elements that match a predicate:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.Filter;
+
+// Keep words longer than 5 characters
+PCollection<String> longWords = words.apply(
+    Filter.by(word -> word.length() > 5));
+
+// Remove empty strings
+PCollection<String> nonEmpty = words.apply(
+    Filter.by(word -> !word.isEmpty()));
+```
+
+```python Python
+# Keep words longer than 5 characters
+long_words = words | beam.Filter(lambda word: len(word) > 5)
+
+# Remove empty strings
+non_empty = words | beam.Filter(lambda word: word)
+```
+
+```go Go
+func isLongWord(word string) bool {
+    return len(word) > 5
+}
+
+longWords := filter.Include(s, words, isLongWord)
+```
+</CodeGroup>
+
+### GroupByKey
+
+Group values by their key:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.GroupByKey;
+import org.apache.beam.sdk.values.KV;
+
+// Input: [("cat", 1), ("dog", 5), ("cat", 2), ("dog", 1)]
+PCollection<KV<String, Integer>> pairs = ...;
+
+// Group by key
+PCollection<KV<String, Iterable<Integer>>> grouped = 
+    pairs.apply(GroupByKey.create());
+// Output: [("cat", [1, 2]), ("dog", [5, 1])]
+```
+
+```python Python
+import apache_beam as beam
+
+# Input: [('cat', 1), ('dog', 5), ('cat', 2), ('dog', 1)]
+pairs = ...
+
+# Group by key
+grouped = pairs | beam.GroupByKey()
+# Output: [('cat', [1, 2]), ('dog', [5, 1])]
+```
+
+```go Go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam"
+
+// Input: [("cat", 1), ("dog", 5), ("cat", 2), ("dog", 1)]
+pairs := ...
+
+// Group by key  
+grouped := beam.GroupByKey(s, pairs)
+// Output: [("cat", []int{1, 2}), ("dog", []int{5, 1})]
+```
+</CodeGroup>
+
+<Note>
+GroupByKey triggers a shuffle operation, which can be expensive. Use it judiciously.
+</Note>
+
+### CoGroupByKey
+
+Join multiple PCollections by key:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.join.CoGroupByKey;
+import org.apache.beam.sdk.transforms.join.KeyedPCollectionTuple;
+import org.apache.beam.sdk.values.TupleTag;
+
+final TupleTag<String> emailsTag = new TupleTag<>();
+final TupleTag<String> phonesTag = new TupleTag<>();
+
+PCollection<KV<String, String>> emails = ...; // (name, email)
+PCollection<KV<String, String>> phones = ...; // (name, phone)
+
+PCollection<KV<String, CoGbkResult>> joined =
+    KeyedPCollectionTuple.of(emailsTag, emails)
+        .and(phonesTag, phones)
+        .apply(CoGroupByKey.create());
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import coders
+
+emails = ...  # (name, email)
+phones = ...  # (name, phone)
+
+joined = ({'emails': emails, 'phones': phones} 
+          | beam.CoGroupByKey())
+
+# Process joined data
+def format_joined(name_info):
+    name, info = name_info
+    emails = list(info['emails'])
+    phones = list(info['phones'])
+    return f'{name}: {emails}, {phones}'
+
+formatted = joined | beam.Map(format_joined)
+```
+</CodeGroup>
+
+### Combine
+
+Aggregate values:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.Combine;
+import org.apache.beam.sdk.transforms.Sum;
+import org.apache.beam.sdk.transforms.Max;
+import org.apache.beam.sdk.transforms.Count;
+
+// Count globally
+PCollection<Long> count = words.apply(Count.globally());
+
+// Count per element
+PCollection<KV<String, Long>> wordCounts = words.apply(Count.perElement());
+
+// Sum integers
+PCollection<Integer> sum = numbers.apply(Sum.integersGlobally());
+
+// Sum per key
+PCollection<KV<String, Integer>> sums = pairs.apply(Sum.integersPerKey());
+
+// Maximum
+PCollection<Integer> max = numbers.apply(Max.integersGlobally());
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import combiners
+
+# Count globally
+count = words | beam.combiners.Count.Globally()
+
+# Count per element
+word_counts = words | beam.combiners.Count.PerElement()
+
+# Sum
+total = numbers | beam.CombineGlobally(sum)
+
+# Sum per key
+sums = pairs | beam.CombinePerKey(sum)
+
+# Mean
+average = numbers | beam.combiners.Mean.Globally()
+```
+
+```go Go
+import (
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/stats"
+)
+
+// Count
+count := stats.Count(s, words)
+
+// Sum
+total := stats.Sum(s, numbers)
+
+// Mean
+average := stats.Mean(s, numbers)
+
+// Max
+maximum := stats.Max(s, numbers)
+```
+</CodeGroup>
+
+### Custom CombineFn
+
+Create custom aggregation logic:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.Combine.CombineFn;
+
+static class AverageFn extends CombineFn<Integer, AverageFn.Accum, Double> {
+    static class Accum {
+        int sum = 0;
+        int count = 0;
+    }
+    
+    @Override
+    public Accum createAccumulator() {
+        return new Accum();
+    }
+    
+    @Override
+    public Accum addInput(Accum accum, Integer input) {
+        accum.sum += input;
+        accum.count++;
+        return accum;
+    }
+    
+    @Override
+    public Accum mergeAccumulators(Iterable<Accum> accums) {
+        Accum merged = createAccumulator();
+        for (Accum accum : accums) {
+            merged.sum += accum.sum;
+            merged.count += accum.count;
+        }
+        return merged;
+    }
+    
+    @Override
+    public Double extractOutput(Accum accum) {
+        return accum.count == 0 ? 0.0 : (double) accum.sum / accum.count;
+    }
+}
+
+PCollection<Double> average = numbers.apply(Combine.globally(new AverageFn()));
+```
+
+```python Python
+import apache_beam as beam
+
+class AverageFn(beam.CombineFn):
+    def create_accumulator(self):
+        return (0, 0)  # (sum, count)
+    
+    def add_input(self, accumulator, input):
+        sum_val, count = accumulator
+        return (sum_val + input, count + 1)
+    
+    def merge_accumulators(self, accumulators):
+        sums, counts = zip(*accumulators)
+        return (sum(sums), sum(counts))
+    
+    def extract_output(self, accumulator):
+        sum_val, count = accumulator
+        return sum_val / count if count else 0.0
+
+average = numbers | beam.CombineGlobally(AverageFn())
+```
+
+```go Go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam"
+
+type Accum struct {
+    Sum   int
+    Count int
+}
+
+func createAccum() Accum {
+    return Accum{}
+}
+
+func addInput(accum Accum, input int) Accum {
+    accum.Sum += input
+    accum.Count++
+    return accum
+}
+
+func mergeAccums(accum1, accum2 Accum) Accum {
+    return Accum{
+        Sum:   accum1.Sum + accum2.Sum,
+        Count: accum1.Count + accum2.Count,
+    }
+}
+
+func extractOutput(accum Accum) float64 {
+    if accum.Count == 0 {
+        return 0.0
+    }
+    return float64(accum.Sum) / float64(accum.Count)
+}
+
+average := beam.Combine(s, createAccum, addInput, mergeAccums, extractOutput, numbers)
+```
+</CodeGroup>
+
+## Flatten
+
+Merge multiple PCollections of the same type:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.Flatten;
+import org.apache.beam.sdk.values.PCollectionList;
+
+PCollection<String> pc1 = ...;
+PCollection<String> pc2 = ...;
+PCollection<String> pc3 = ...;
+
+PCollection<String> merged = PCollectionList
+    .of(pc1).and(pc2).and(pc3)
+    .apply(Flatten.pCollections());
+```
+
+```python Python
+pc1 = ...
+pc2 = ...
+pc3 = ...
+
+merged = (pc1, pc2, pc3) | beam.Flatten()
+```
+
+```go Go
+pc1 := ...
+pc2 := ...
+pc3 := ...
+
+merged := beam.Flatten(s, pc1, pc2, pc3)
+```
+</CodeGroup>
+
+## Partition
+
+Split a PCollection into multiple partitions:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.Partition;
+import org.apache.beam.sdk.values.PCollectionList;
+
+PCollectionList<Integer> partitioned = numbers.apply(
+    Partition.of(3, (Integer num, int numPartitions) -> num % numPartitions));
+
+PCollection<Integer> partition0 = partitioned.get(0);
+PCollection<Integer> partition1 = partitioned.get(1);
+PCollection<Integer> partition2 = partitioned.get(2);
+```
+
+```python Python
+def partition_fn(num, num_partitions):
+    return num % num_partitions
+
+partitioned = numbers | beam.Partition(partition_fn, 3)
+
+partition0 = partitioned[0]
+partition1 = partitioned[1]
+partition2 = partitioned[2]
+```
+</CodeGroup>
+
+## Composite Transforms
+
+Create reusable transform pipelines:
+
+<CodeGroup>
+```java Java
+static class CountWords 
+    extends PTransform<PCollection<String>, PCollection<KV<String, Long>>> {
+    
+    @Override
+    public PCollection<KV<String, Long>> expand(PCollection<String> lines) {
+        return lines
+            .apply("ExtractWords", FlatMapElements
+                .into(TypeDescriptors.strings())
+                .via(line -> Arrays.asList(line.split("\\s+"))))
+            .apply("FilterEmpty", Filter.by(word -> !word.isEmpty()))
+            .apply("CountPerElement", Count.perElement());
+    }
+}
+
+// Usage
+PCollection<String> lines = ...;
+PCollection<KV<String, Long>> counts = lines.apply(new CountWords());
+```
+
+```python Python
+class CountWords(beam.PTransform):
+    def expand(self, lines):
+        return (
+            lines
+            | 'ExtractWords' >> beam.FlatMap(lambda line: line.split())
+            | 'FilterEmpty' >> beam.Filter(lambda word: word)
+            | 'CountPerElement' >> beam.combiners.Count.PerElement()
+        )
+
+# Usage
+lines = ...
+counts = lines | CountWords()
+```
+
+```go Go
+func CountWords(s beam.Scope, lines beam.PCollection) beam.PCollection {
+    s = s.Scope("CountWords")
+    words := beam.ParDo(s.Scope("ExtractWords"), extractWordsFn, lines)
+    filtered := filter.Include(s.Scope("FilterEmpty"), words, isNotEmpty)
+    return stats.Count(s.Scope("CountPerElement"), filtered)
+}
+
+// Usage
+lines := ...
+counts := CountWords(s, lines)
+```
+</CodeGroup>
+
+<Tip>
+Composite transforms improve code reusability and make your pipeline structure clearer.
+</Tip>
+
+## Best Practices
+
+<Note>
+**Name your transforms**: Always provide descriptive names to help with debugging and monitoring.
+</Note>
+
+<Warning>
+**Avoid non-deterministic operations**: Transforms should produce the same output for the same input to support fault tolerance.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Windowing" icon="window-restore" href="/concepts/windowing">
+    Learn how to divide data into time-based windows
+  </Card>
+  <Card title="Triggers" icon="clock" href="/concepts/triggers">
+    Control when results are emitted
+  </Card>
+</CardGroup>

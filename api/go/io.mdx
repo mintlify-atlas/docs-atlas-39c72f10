@@ -1,0 +1,542 @@
+---
+title: I/O API
+description: File I/O and data source/sink transforms for Apache Beam Go SDK
+---
+
+The I/O packages provide transforms for reading from and writing to various data sources and sinks.
+
+## textio
+
+Package textio provides transforms for reading and writing text files.
+
+### Read
+
+Reads a set of files matching a glob pattern and returns lines as PCollection&lt;string&gt;.
+
+```go
+func Read(s beam.Scope, glob string, opts ...ReadOptionFn) beam.PCollection
+```
+
+<ParamField path="s" type="beam.Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="glob" type="string">
+  File path or glob pattern (e.g., "gs://bucket/*.txt", "/path/to/*.log")
+</ParamField>
+
+<ParamField path="opts" type="...ReadOptionFn">
+  Optional configuration: ReadAutoCompression(), ReadGzip(), ReadUncompressed()
+</ParamField>
+
+<ParamField path="Returns" type="beam.PCollection">
+  PCollection&lt;string&gt; of lines (newlines removed)
+</ParamField>
+
+**Example:**
+
+```go
+import (
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/io/textio"
+)
+
+lines := textio.Read(root, "gs://my-bucket/input/*.txt")
+
+// With compression options
+gzLines := textio.Read(root, "data/*.gz", textio.ReadGzip())
+autoLines := textio.Read(root, "data/*", textio.ReadAutoCompression())
+```
+
+### ReadAll
+
+Expands and reads filenames from an input PCollection&lt;string&gt; of globs.
+
+```go
+func ReadAll(s beam.Scope, col beam.PCollection, opts ...ReadOptionFn) beam.PCollection
+```
+
+<ParamField path="s" type="beam.Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="col" type="beam.PCollection">
+  PCollection&lt;string&gt; of file paths or glob patterns
+</ParamField>
+
+<ParamField path="opts" type="...ReadOptionFn">
+  Optional compression configuration
+</ParamField>
+
+<ParamField path="Returns" type="beam.PCollection">
+  PCollection&lt;string&gt; of all lines from all matched files
+</ParamField>
+
+**Example:**
+
+```go
+patterns := beam.Create(root, "data/part-*.txt", "logs/*.log")
+allLines := textio.ReadAll(root, patterns)
+```
+
+### ReadWithFilename
+
+Reads files and returns PCollection&lt;KV&lt;string,string&gt;&gt; of filename and line.
+
+```go
+func ReadWithFilename(s beam.Scope, glob string, opts ...ReadOptionFn) beam.PCollection
+```
+
+<ParamField path="Returns" type="beam.PCollection">
+  PCollection&lt;KV&lt;string,string&gt;&gt; where key is filename and value is line content
+</ParamField>
+
+**Example:**
+
+```go
+filesAndLines := textio.ReadWithFilename(root, "logs/*.log")
+
+// Process with filename context
+func logWithFile(filename, line string) {
+    log.Printf("[%s] %s", filename, line)
+}
+
+beam.ParDo0(root, logWithFile, filesAndLines)
+```
+
+### Write
+
+Writes a PCollection&lt;string&gt; to a file as separate lines.
+
+```go
+func Write(s beam.Scope, filename string, col beam.PCollection)
+```
+
+<ParamField path="s" type="beam.Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="filename" type="string">
+  Output file path
+</ParamField>
+
+<ParamField path="col" type="beam.PCollection">
+  PCollection&lt;string&gt; to write (each element becomes a line)
+</ParamField>
+
+**Example:**
+
+```go
+lines := beam.Create(root, "line 1", "line 2", "line 3")
+textio.Write(root, "output.txt", lines)
+
+// GCS path
+textio.Write(root, "gs://my-bucket/output.txt", results)
+```
+
+### Immediate
+
+Reads a local file at pipeline construction time and embeds data into the pipeline.
+
+```go
+func Immediate(s beam.Scope, filename string) (beam.PCollection, error)
+```
+
+<ParamField path="s" type="beam.Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="filename" type="string">
+  Local file path to read immediately
+</ParamField>
+
+<ParamField path="Returns" type="(beam.PCollection, error)">
+  PCollection&lt;string&gt; with file contents, or error if read fails
+</ParamField>
+
+**Note:** Only use for small files as data is embedded in the pipeline.
+
+## fileio
+
+Package fileio provides lower-level transforms for matching and reading files with more control.
+
+### MatchFiles
+
+Finds all files matching a glob pattern and returns PCollection&lt;FileMetadata&gt;.
+
+```go
+func MatchFiles(s beam.Scope, glob string, opts ...MatchOptionFn) beam.PCollection
+```
+
+<ParamField path="s" type="beam.Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="glob" type="string">
+  File path or glob pattern
+</ParamField>
+
+<ParamField path="opts" type="...MatchOptionFn">
+  Options: MatchEmptyAllow(), MatchEmptyDisallow(), MatchEmptyAllowIfWildcard()
+</ParamField>
+
+<ParamField path="Returns" type="beam.PCollection">
+  PCollection&lt;FileMetadata&gt; with file path, size, and last modified time
+</ParamField>
+
+**Example:**
+
+```go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/io/fileio"
+
+matches := fileio.MatchFiles(root, "data/*.json")
+
+// Allow empty results
+matches := fileio.MatchFiles(root, "optional/*.txt", fileio.MatchEmptyAllow())
+```
+
+### MatchAll
+
+Matches files from an input PCollection&lt;string&gt; of glob patterns.
+
+```go
+func MatchAll(s beam.Scope, col beam.PCollection, opts ...MatchOptionFn) beam.PCollection
+```
+
+<ParamField path="col" type="beam.PCollection">
+  PCollection&lt;string&gt; of glob patterns
+</ParamField>
+
+<ParamField path="Returns" type="beam.PCollection">
+  PCollection&lt;FileMetadata&gt; of all matching files
+</ParamField>
+
+### MatchContinuously
+
+Continuously watches for new files matching a pattern at regular intervals.
+
+```go
+func MatchContinuously(
+    s beam.Scope,
+    glob string,
+    interval time.Duration,
+    opts ...MatchContOptionFn,
+) beam.PCollection
+```
+
+<ParamField path="s" type="beam.Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="glob" type="string">
+  File pattern to watch
+</ParamField>
+
+<ParamField path="interval" type="time.Duration">
+  How often to check for new files
+</ParamField>
+
+<ParamField path="opts" type="...MatchContOptionFn">
+  Options: MatchStart(), MatchEnd(), MatchDuplicateSkip(), MatchDuplicateAllowIfModified(), MatchApplyWindow()
+</ParamField>
+
+<ParamField path="Returns" type="beam.PCollection">
+  Unbounded PCollection&lt;FileMetadata&gt; of matching files over time
+</ParamField>
+
+**Example:**
+
+```go
+import "time"
+
+// Check for new files every 30 seconds
+newFiles := fileio.MatchContinuously(
+    root,
+    "gs://bucket/incoming/*.json",
+    30*time.Second,
+    fileio.MatchDuplicateSkip(),
+)
+```
+
+### ReadMatches
+
+Converts PCollection&lt;FileMetadata&gt; to PCollection&lt;ReadableFile&gt;.
+
+```go
+func ReadMatches(s beam.Scope, col beam.PCollection, opts ...ReadOptionFn) beam.PCollection
+```
+
+<ParamField path="s" type="beam.Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="col" type="beam.PCollection">
+  PCollection&lt;FileMetadata&gt; from MatchFiles/MatchAll
+</ParamField>
+
+<ParamField path="opts" type="...ReadOptionFn">
+  Options: ReadAutoCompression(), ReadGzip(), ReadUncompressed(), ReadDirectorySkip()
+</ParamField>
+
+<ParamField path="Returns" type="beam.PCollection">
+  PCollection&lt;ReadableFile&gt; ready for reading
+</ParamField>
+
+**Example:**
+
+```go
+matches := fileio.MatchFiles(root, "data/*.gz")
+files := fileio.ReadMatches(root, matches, fileio.ReadGzip())
+
+// Custom processing
+func processFile(ctx context.Context, file fileio.ReadableFile, emit func(string)) error {
+    data, err := file.Read(ctx)
+    if err != nil {
+        return err
+    }
+    // Process data...
+    emit(string(data))
+    return nil
+}
+
+results := beam.ParDo(root, processFile, files)
+```
+
+## FileMetadata
+
+Contains metadata about a matched file.
+
+```go
+type FileMetadata struct {
+    Path         string
+    Size         int64
+    LastModified time.Time
+}
+```
+
+<ParamField path="Path" type="string">
+  Full path to the file
+</ParamField>
+
+<ParamField path="Size" type="int64">
+  File size in bytes
+</ParamField>
+
+<ParamField path="LastModified" type="time.Time">
+  When the file was last modified
+</ParamField>
+
+## ReadableFile
+
+Wrapper around FileMetadata providing methods to read file contents.
+
+```go
+type ReadableFile struct {
+    Metadata    FileMetadata
+    Compression compressionType
+}
+```
+
+### Open
+
+Opens the file for reading.
+
+```go
+func (f ReadableFile) Open(ctx context.Context) (io.ReadCloser, error)
+```
+
+<ParamField path="ctx" type="context.Context">
+  Context for the file operation
+</ParamField>
+
+<ParamField path="Returns" type="(io.ReadCloser, error)">
+  Reader for file contents (caller must close) or error
+</ParamField>
+
+**Example:**
+
+```go
+func processFile(ctx context.Context, file fileio.ReadableFile) error {
+    reader, err := file.Open(ctx)
+    if err != nil {
+        return err
+    }
+    defer reader.Close()
+    
+    scanner := bufio.NewScanner(reader)
+    for scanner.Scan() {
+        line := scanner.Text()
+        // Process line...
+    }
+    return scanner.Err()
+}
+```
+
+### Read
+
+Reads the entire file into memory.
+
+```go
+func (f ReadableFile) Read(ctx context.Context) ([]byte, error)
+```
+
+<ParamField path="ctx" type="context.Context">
+  Context for the file operation
+</ParamField>
+
+<ParamField path="Returns" type="([]byte, error)">
+  Complete file contents or error
+</ParamField>
+
+### ReadString
+
+Reads the entire file as a string.
+
+```go
+func (f ReadableFile) ReadString(ctx context.Context) (string, error)
+```
+
+<ParamField path="Returns" type="(string, error)">
+  File contents as string or error
+</ParamField>
+
+## Other I/O Packages
+
+The Go SDK includes I/O connectors for various data sources:
+
+### avroio
+
+Read and write Avro files.
+
+```go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/io/avroio"
+```
+
+### bigqueryio
+
+Read from and write to Google BigQuery.
+
+```go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/io/bigqueryio"
+```
+
+### parquetio
+
+Read and write Parquet files.
+
+```go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/io/parquetio"
+```
+
+### pubsubio
+
+Read from and write to Google Cloud Pub/Sub.
+
+```go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/io/pubsubio"
+```
+
+### databaseio
+
+Generic database I/O for SQL databases.
+
+```go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/io/databaseio"
+```
+
+### mongodbio
+
+Read from and write to MongoDB.
+
+```go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/io/mongodbio"
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "context"
+    "strings"
+    
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/io/textio"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/register"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/x/beamx"
+)
+
+func init() {
+    register.Function1x2(extractWords)
+    register.Function2x1(sumCounts)
+    register.Function1x1(formatOutput)
+}
+
+func extractWords(line string) (string, int) {
+    words := strings.Fields(line)
+    for _, word := range words {
+        // Would emit each word; simplified here
+    }
+    return word, 1
+}
+
+func sumCounts(a, b int) int {
+    return a + b
+}
+
+func formatOutput(word string, count int) string {
+    return fmt.Sprintf("%s: %d", word, count)
+}
+
+func main() {
+    beam.Init()
+    
+    p := beam.NewPipeline()
+    root := p.Root()
+    
+    // Read input files
+    lines := textio.Read(root, "input/*.txt")
+    
+    // Count words
+    wordCounts := beam.ParDo(root, extractWords, lines)
+    grouped := beam.CombinePerKey(root, sumCounts, wordCounts)
+    
+    // Format and write output
+    formatted := beam.ParDo(root, formatOutput, grouped)
+    textio.Write(root, "output.txt", formatted)
+    
+    if err := beamx.Run(context.Background(), p); err != nil {
+        log.Fatalf("Failed to execute pipeline: %v", err)
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="File Paths">
+    - Use appropriate URI schemes: `gs://` for GCS, `s3://` for S3, local paths for local files
+    - Glob patterns support `*` and `**` wildcards
+    - Always validate file paths before pipeline execution
+  </Accordion>
+
+  <Accordion title="Compression">
+    - Use ReadAutoCompression() for mixed compression types
+    - Explicit compression options are faster (no detection overhead)
+    - Gzip is automatically detected from `.gz` extension
+  </Accordion>
+
+  <Accordion title="Performance">
+    - textio.Read uses splittable DoFn for parallel processing
+    - Large files are automatically split into chunks
+    - Use fileio for custom file processing logic
+    - Avoid Immediate() for large files (embeds in pipeline)
+  </Accordion>
+
+  <Accordion title="Streaming">
+    - Use MatchContinuously for streaming file ingestion
+    - Configure deduplication based on your use case
+    - Consider windowing strategies for time-based processing
+  </Accordion>
+</AccordionGroup>

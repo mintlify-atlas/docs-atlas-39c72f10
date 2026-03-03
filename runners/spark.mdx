@@ -1,0 +1,730 @@
+---
+title: Apache Spark Runner
+description: Execute Beam pipelines on Apache Spark for batch and streaming processing
+---
+
+The SparkRunner executes Apache Beam pipelines on Apache Spark clusters, enabling you to leverage existing Spark infrastructure for both batch and streaming workloads.
+
+## Overview
+
+Apache Spark is a unified analytics engine that provides:
+- **Batch Processing**: Fast in-memory batch processing
+- **Streaming**: Structured Streaming for real-time processing
+- **SQL Support**: Integrate with Spark SQL and DataFrames
+- **Ecosystem**: Rich ecosystem of libraries and connectors
+- **Scalability**: Run on clusters from laptops to data centers
+
+## When to Use SparkRunner
+
+<CardGroup cols={2}>
+  <Card title="Best For" icon="check">
+    - Existing Spark infrastructure
+    - Spark ecosystem integration
+    - Unified batch and streaming
+    - On-premise deployments
+    - Cost-effective large-scale batch
+    - Teams familiar with Spark
+  </Card>
+  
+  <Card title="Consider Alternatives" icon="info">
+    - Pure streaming apps (FlinkRunner)
+    - GCP workloads (DataflowRunner)
+    - Local development (DirectRunner)
+    - Low-latency streaming (FlinkRunner)
+  </Card>
+</CardGroup>
+
+## Setup and Configuration
+
+### Prerequisites
+
+- Apache Spark 3.0 or later
+- Java 8 or later
+- Spark cluster or local Spark installation
+
+### Dependencies
+
+<Tabs>
+  <Tab title="Java">
+    Add to your `pom.xml`:
+    
+    ```xml
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-runners-spark-3</artifactId>
+      <version>{beam-version}</version>
+    </dependency>
+    ```
+    
+    For Gradle:
+    ```gradle
+    implementation 'org.apache.beam:beam-runners-spark-3:{beam-version}'
+    ```
+    
+    <Info>
+      Use `beam-runners-spark-3` for Spark 3.x. For Spark 2.x, use `beam-runners-spark`.
+    </Info>
+  </Tab>
+  
+  <Tab title="Python">
+    Install Beam with Spark support:
+    ```bash
+    pip install apache-beam[spark]
+    ```
+    
+    The Spark runner uses the portable model:
+    ```bash
+    python my_pipeline.py \
+      --runner=SparkRunner \
+      --spark_master_url=spark://localhost:7077
+    ```
+  </Tab>
+  
+  <Tab title="Scala">
+    Add to your `build.sbt`:
+    ```scala
+    libraryDependencies += "org.apache.beam" % "beam-runners-spark-3" % beamVersion
+    ```
+  </Tab>
+</Tabs>
+
+### Spark Cluster Setup
+
+#### Local Spark
+
+```bash
+# Download Spark
+wget https://archive.apache.org/dist/spark/spark-3.5.0/spark-3.5.0-bin-hadoop3.tgz
+tar -xzf spark-3.5.0-bin-hadoop3.tgz
+cd spark-3.5.0-bin-hadoop3
+
+# Start local master and worker
+./sbin/start-master.sh
+./sbin/start-worker.sh spark://localhost:7077
+
+# Access UI at http://localhost:8080
+```
+
+#### Spark on YARN
+
+```bash
+# Submit to YARN cluster
+spark-submit \
+  --master yarn \
+  --deploy-mode cluster \
+  --class com.example.MyPipeline \
+  target/my-pipeline.jar
+```
+
+#### Spark on Kubernetes
+
+```bash
+# Submit to Kubernetes
+spark-submit \
+  --master k8s://https://kubernetes-api:6443 \
+  --deploy-mode cluster \
+  --class com.example.MyPipeline \
+  target/my-pipeline.jar
+```
+
+## Running a Pipeline
+
+### Basic Example
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+    import org.apache.beam.runners.spark.SparkRunner;
+    import org.apache.beam.runners.spark.SparkPipelineOptions;
+    import org.apache.beam.sdk.Pipeline;
+    import org.apache.beam.sdk.options.PipelineOptionsFactory;
+    
+    public class MySparkPipeline {
+      public static void main(String[] args) {
+        SparkPipelineOptions options = 
+            PipelineOptionsFactory.fromArgs(args)
+                .withValidation()
+                .as(SparkPipelineOptions.class);
+        
+        // Set the runner
+        options.setRunner(SparkRunner.class);
+        
+        // Spark master URL
+        options.setSparkMaster("spark://localhost:7077");
+        // Or local mode
+        // options.setSparkMaster("local[4]");
+        
+        Pipeline p = Pipeline.create(options);
+        
+        // Build your pipeline
+        p.apply(/* your transforms */);
+        
+        // Execute on Spark
+        p.run().waitUntilFinish();
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+    import apache_beam as beam
+    from apache_beam.options.pipeline_options import PipelineOptions
+    
+    def run():
+        options = PipelineOptions([
+            '--runner=SparkRunner',
+            '--spark_master_url=spark://localhost:7077',
+        ])
+        
+        with beam.Pipeline(options=options) as p:
+            # Build your pipeline
+            (p 
+             | beam.Create(['Hello', 'Spark'])
+             | beam.Map(lambda x: x.upper())
+             | beam.Map(print))
+    
+    if __name__ == '__main__':
+        run()
+    ```
+  </Tab>
+  
+  <Tab title="Scala">
+    ```scala
+    import org.apache.beam.runners.spark.SparkRunner
+    import org.apache.beam.sdk.Pipeline
+    import org.apache.beam.sdk.options.PipelineOptionsFactory
+    
+    object MySparkPipeline {
+      def main(args: Array[String]): Unit = {
+        val options = PipelineOptionsFactory
+          .fromArgs(args: _*)
+          .withValidation()
+          .as(classOf[SparkPipelineOptions])
+        
+        options.setRunner(classOf[SparkRunner])
+        options.setSparkMaster("local[4]")
+        
+        val pipeline = Pipeline.create(options)
+        
+        // Build your pipeline
+        
+        pipeline.run().waitUntilFinish()
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Execution Modes
+
+#### Local Mode
+
+Run with local Spark:
+
+```java
+SparkPipelineOptions options = 
+    PipelineOptionsFactory.as(SparkPipelineOptions.class);
+
+options.setRunner(SparkRunner.class);
+options.setSparkMaster("local[*]");  // Use all cores
+// or
+options.setSparkMaster("local[4]");  // Use 4 cores
+```
+
+#### Cluster Mode
+
+Submit to a Spark cluster:
+
+```bash
+spark-submit \
+  --master spark://master:7077 \
+  --class com.example.MyPipeline \
+  --deploy-mode cluster \
+  target/my-pipeline.jar \
+  --runner=SparkRunner
+```
+
+## SparkPipelineOptions
+
+### Core Options
+
+<ParamField path="sparkMaster" type="string" default="local[4]">
+  Spark master URL:
+  - `local[n]` - Local mode with n threads
+  - `local[*]` - Local mode with all cores
+  - `spark://host:port` - Spark standalone cluster
+  - `yarn` - YARN cluster
+  - `k8s://host:port` - Kubernetes cluster
+  
+  ```java
+  options.setSparkMaster("spark://localhost:7077");
+  ```
+</ParamField>
+
+<ParamField path="appName" type="string" default="Beam App">
+  Application name displayed in Spark UI.
+  
+  ```java
+  options.setAppName("My Beam Pipeline");
+  ```
+</ParamField>
+
+### Streaming Options
+
+<ParamField path="streaming" type="boolean" default="false">
+  Enable streaming mode for unbounded sources.
+  
+  ```java
+  options.setStreaming(true);
+  ```
+</ParamField>
+
+<ParamField path="batchIntervalMillis" type="long" default="500">
+  Batch interval for Spark Streaming in milliseconds.
+  
+  ```java
+  options.setBatchIntervalMillis(1000L); // 1 second
+  ```
+</ParamField>
+
+<ParamField path="checkpointDurationMillis" type="long" default="-1">
+  Checkpoint interval in milliseconds. -1 uses Spark's default.
+  
+  ```java
+  options.setCheckpointDurationMillis(10000L); // 10 seconds
+  ```
+</ParamField>
+
+<ParamField path="checkpointDir" type="string">
+  Directory for Spark checkpoints.
+  
+  ```java
+  options.setCheckpointDir("hdfs:///checkpoints");
+  ```
+</ParamField>
+
+### Performance Options
+
+<ParamField path="bundleSize" type="long" default="0">
+  Bundle size for splitting bounded sources. 0 uses Spark's default parallelism.
+  
+  ```java
+  options.setBundleSize(1000L);
+  ```
+</ParamField>
+
+<ParamField path="cacheDisabled" type="boolean" default="false">
+  Disable caching of reused PCollections.
+  
+  ```java
+  options.setCacheDisabled(true);
+  ```
+</ParamField>
+
+<ParamField path="maxRecordsPerBatch" type="long" default="-1">
+  Maximum records per micro-batch for streaming sources.
+  
+  ```java
+  options.setMaxRecordsPerBatch(10000L);
+  ```
+</ParamField>
+
+### Resource Configuration
+
+<ParamField path="sparkSubmitConf" type="Map<String, String>">
+  Spark configuration properties.
+  
+  ```java
+  Map<String, String> conf = new HashMap<>();
+  conf.put("spark.executor.memory", "4g");
+  conf.put("spark.executor.cores", "2");
+  options.setSparkSubmitConf(conf);
+  ```
+</ParamField>
+
+## Advanced Configuration
+
+### Using Existing SparkContext
+
+```java
+import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.beam.runners.spark.SparkContextOptions;
+
+// Create Spark context
+SparkConf conf = new SparkConf()
+    .setAppName("My Pipeline")
+    .setMaster("local[4]");
+JavaSparkContext jsc = new JavaSparkContext(conf);
+
+// Use with Beam
+SparkContextOptions options = 
+    PipelineOptionsFactory.as(SparkContextOptions.class);
+options.setUsesProvidedSparkContext(true);
+options.setProvidedSparkContext(jsc);
+
+Pipeline p = Pipeline.create(options);
+// Build pipeline
+p.run().waitUntilFinish();
+
+jsc.stop();
+```
+
+### Spark Configuration
+
+```java
+SparkPipelineOptions options = 
+    PipelineOptionsFactory.as(SparkPipelineOptions.class);
+
+Map<String, String> sparkConf = new HashMap<>();
+
+// Executor configuration
+sparkConf.put("spark.executor.memory", "4g");
+sparkConf.put("spark.executor.cores", "2");
+sparkConf.put("spark.executor.instances", "10");
+
+// Driver configuration
+sparkConf.put("spark.driver.memory", "2g");
+sparkConf.put("spark.driver.cores", "1");
+
+// Dynamic allocation
+sparkConf.put("spark.dynamicAllocation.enabled", "true");
+sparkConf.put("spark.dynamicAllocation.minExecutors", "2");
+sparkConf.put("spark.dynamicAllocation.maxExecutors", "20");
+
+// Shuffle configuration
+sparkConf.put("spark.shuffle.service.enabled", "true");
+
+options.setSparkSubmitConf(sparkConf);
+```
+
+### Checkpointing
+
+For streaming pipelines:
+
+```java
+SparkPipelineOptions options = 
+    PipelineOptionsFactory.as(SparkPipelineOptions.class);
+
+options.setStreaming(true);
+options.setCheckpointDir("hdfs:///beam/checkpoints");
+options.setCheckpointDurationMillis(10000L); // 10 seconds
+```
+
+## Batch vs Streaming
+
+### Batch Pipeline
+
+```java
+SparkPipelineOptions options = 
+    PipelineOptionsFactory.as(SparkPipelineOptions.class);
+
+options.setRunner(SparkRunner.class);
+options.setSparkMaster("local[*]");
+// streaming defaults to false
+
+Pipeline p = Pipeline.create(options);
+p.apply(TextIO.read().from("/path/to/input"))
+    .apply(/* transforms */)
+    .apply(TextIO.write().to("/path/to/output"));
+
+p.run().waitUntilFinish();
+```
+
+### Streaming Pipeline
+
+```java
+SparkPipelineOptions options = 
+    PipelineOptionsFactory.as(SparkPipelineOptions.class);
+
+options.setRunner(SparkRunner.class);
+options.setSparkMaster("local[*]");
+options.setStreaming(true);
+options.setBatchIntervalMillis(1000L);
+options.setCheckpointDir("/tmp/checkpoint");
+
+Pipeline p = Pipeline.create(options);
+p.apply(KafkaIO.<String, String>read()
+    .withBootstrapServers("localhost:9092")
+    .withTopic("input-topic")
+    .withKeyDeserializer(StringDeserializer.class)
+    .withValueDeserializer(StringDeserializer.class))
+    .apply(/* transforms */)
+    .apply(KafkaIO.<Void, String>write()
+        .withBootstrapServers("localhost:9092")
+        .withTopic("output-topic"));
+
+p.run().waitUntilFinish();
+```
+
+## Monitoring and Debugging
+
+### Spark UI
+
+Access Spark UI for monitoring:
+- **Master UI**: `http://master:8080` (standalone mode)
+- **Application UI**: `http://driver:4040`
+- **History Server**: `http://history-server:18080`
+
+View:
+- Job stages and tasks
+- Executor metrics
+- Storage and memory usage
+- Environment configuration
+
+### Metrics
+
+Beam metrics are available in Spark:
+
+```java
+import org.apache.beam.sdk.metrics.*;
+
+public class MyDoFn extends DoFn<String, String> {
+  private final Counter counter = 
+      Metrics.counter(MyDoFn.class, "processed");
+  private final Distribution distribution = 
+      Metrics.distribution(MyDoFn.class, "size");
+  
+  @ProcessElement
+  public void processElement(ProcessContext c) {
+    counter.inc();
+    distribution.update(c.element().length());
+    c.output(c.element());
+  }
+}
+
+// Read metrics after execution
+PipelineResult result = p.run();
+result.waitUntilFinish();
+
+MetricResults metrics = result.metrics();
+MetricQueryResults counters = metrics.queryMetrics(
+    MetricsFilter.builder()
+        .addNameFilter(MetricNameFilter.named(MyDoFn.class, "processed"))
+        .build());
+```
+
+### Logging
+
+```java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class MyDoFn extends DoFn<String, String> {
+  private static final Logger LOG = LoggerFactory.getLogger(MyDoFn.class);
+  
+  @ProcessElement
+  public void processElement(ProcessContext c) {
+    LOG.info("Processing: {}", c.element());
+    c.output(c.element());
+  }
+}
+```
+
+Logs are available:
+- In Spark executor logs
+- Through Spark UI
+- In configured log aggregation system
+
+## Performance Tuning
+
+### Parallelism
+
+```java
+// Control bundle size for better parallelism
+options.setBundleSize(1000L);
+
+// Use appropriate Spark parallelism
+Map<String, String> conf = new HashMap<>();
+conf.put("spark.default.parallelism", "200");
+conf.put("spark.sql.shuffle.partitions", "200");
+options.setSparkSubmitConf(conf);
+```
+
+### Memory Management
+
+```java
+Map<String, String> conf = new HashMap<>();
+
+// Executor memory
+conf.put("spark.executor.memory", "8g");
+conf.put("spark.executor.memoryOverhead", "2g");
+
+// Memory fractions
+conf.put("spark.memory.fraction", "0.8");
+conf.put("spark.memory.storageFraction", "0.3");
+
+options.setSparkSubmitConf(conf);
+```
+
+### Caching Strategy
+
+```java
+// Enable caching for reused PCollections (default)
+options.setCacheDisabled(false);
+
+// Or disable if recomputing is faster
+options.setCacheDisabled(true);
+```
+
+### Shuffle Optimization
+
+```java
+Map<String, String> conf = new HashMap<>();
+
+// Shuffle configuration
+conf.put("spark.shuffle.compress", "true");
+conf.put("spark.shuffle.spill.compress", "true");
+conf.put("spark.shuffle.file.buffer", "128k");
+
+options.setSparkSubmitConf(conf);
+```
+
+## Best Practices
+
+### Resource Allocation
+
+1. **Right-size executors**
+   ```java
+   conf.put("spark.executor.cores", "4");
+   conf.put("spark.executor.memory", "8g");
+   conf.put("spark.executor.instances", "10");
+   ```
+
+2. **Use dynamic allocation**
+   ```java
+   conf.put("spark.dynamicAllocation.enabled", "true");
+   conf.put("spark.dynamicAllocation.minExecutors", "2");
+   conf.put("spark.dynamicAllocation.maxExecutors", "50");
+   ```
+
+### Streaming Best Practices
+
+1. **Choose appropriate batch interval**
+   ```java
+   options.setBatchIntervalMillis(1000L); // Balance latency vs throughput
+   ```
+
+2. **Enable checkpointing**
+   ```java
+   options.setCheckpointDir("hdfs:///checkpoints");
+   options.setCheckpointDurationMillis(10000L);
+   ```
+
+3. **Configure backpressure**
+   ```java
+   conf.put("spark.streaming.backpressure.enabled", "true");
+   conf.put("spark.streaming.kafka.maxRatePerPartition", "1000");
+   ```
+
+### Batch Best Practices
+
+1. **Partition data appropriately**
+2. **Use broadcast variables for small datasets**
+3. **Avoid wide transformations when possible**
+4. **Coalesce output partitions**
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Job fails to submit">
+    Check:
+    - Spark master is running and accessible
+    - JAR contains all dependencies
+    - Spark version compatibility
+    - Network connectivity
+  </Accordion>
+  
+  <Accordion title="Out of memory errors">
+    - Increase executor memory
+    - Increase memory overhead
+    - Reduce partition size
+    - Enable off-heap memory
+    - Disable caching if not beneficial
+  </Accordion>
+  
+  <Accordion title="Slow performance">
+    - Check data skew in Spark UI
+    - Increase parallelism
+    - Optimize shuffle operations
+    - Enable dynamic allocation
+    - Tune memory fractions
+  </Accordion>
+  
+  <Accordion title="Streaming lag">
+    - Reduce batch interval
+    - Increase executors
+    - Enable backpressure
+    - Optimize transforms
+    - Check for bottlenecks in UI
+  </Accordion>
+  
+  <Accordion title="Checkpoint failures">
+    - Verify checkpoint directory is accessible
+    - Check HDFS/storage permissions
+    - Ensure sufficient disk space
+    - Monitor checkpoint size
+  </Accordion>
+</AccordionGroup>
+
+## Runner Capabilities
+
+### Supported Features
+- ✅ Batch processing
+- ✅ Structured Streaming
+- ✅ Windowing
+- ✅ Triggers
+- ✅ State and timers
+- ✅ Side inputs
+- ✅ Metrics
+
+### Limitations
+- Limited exactly-once streaming support
+- Batch interval impacts latency
+- Some Beam features not fully supported
+- Requires Spark cluster management
+
+## Integration Examples
+
+### Reading from Hive
+
+```java
+// Use Spark's native Hive support
+Pipeline p = Pipeline.create(options);
+// Use external Hive connector or custom source
+```
+
+### Writing to Cassandra
+
+```java
+import org.apache.beam.sdk.io.cassandra.CassandraIO;
+
+pipeline
+    .apply(/* source */)
+    .apply(CassandraIO.<MyType>write()
+        .withHosts(Arrays.asList("localhost"))
+        .withPort(9042)
+        .withKeyspace("my_keyspace")
+        .withTable("my_table"));
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Spark Documentation" icon="book" href="https://spark.apache.org/docs/latest/">
+    Learn more about Apache Spark
+  </Card>
+  
+  <Card title="FlinkRunner" icon="bolt" href="/runners/flink">
+    Alternative for streaming workloads
+  </Card>
+  
+  <Card title="Performance" icon="gauge">
+    Optimize pipeline performance
+  </Card>
+  
+  <Card title="Monitoring" icon="chart-line">
+    Monitor Spark applications
+  </Card>
+</CardGroup>

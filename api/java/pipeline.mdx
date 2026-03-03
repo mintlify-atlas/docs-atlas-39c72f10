@@ -1,0 +1,317 @@
+---
+title: Pipeline
+description: Core Apache Beam Pipeline API for constructing and executing data processing workflows
+---
+
+The Pipeline API provides the foundation for building Apache Beam data processing workflows. A Pipeline manages a directed acyclic graph of PTransforms and the PCollections they consume and produce.
+
+## Pipeline Class
+
+The `Pipeline` class represents a data processing workflow.
+
+### Creating a Pipeline
+
+#### create()
+
+Creates a pipeline from default PipelineOptions.
+
+```java
+public static Pipeline create()
+```
+
+**Returns:** A new Pipeline instance
+
+**Example:**
+```java
+Pipeline pipeline = Pipeline.create();
+```
+
+#### create(PipelineOptions)
+
+Creates a pipeline from the provided PipelineOptions.
+
+```java
+public static Pipeline create(PipelineOptions options)
+```
+
+<ParamField path="options" type="PipelineOptions" required>
+  Configuration options for the pipeline, including runner specification
+</ParamField>
+
+**Returns:** A new Pipeline instance
+
+**Example:**
+```java
+PipelineOptions options = PipelineOptionsFactory.create();
+Pipeline pipeline = Pipeline.create(options);
+```
+
+### Applying Transforms
+
+#### apply(PTransform)
+
+Adds a root PTransform to the pipeline.
+
+```java
+public <OutputT extends POutput> OutputT apply(
+    PTransform<? super PBegin, OutputT> root)
+```
+
+<ParamField path="root" type="PTransform<? super PBegin, OutputT>" required>
+  The root transform to apply (e.g., Read or Create)
+</ParamField>
+
+<ResponseField name="output" type="OutputT">
+  The output PCollection or POutput from the transform
+</ResponseField>
+
+**Example:**
+```java
+PCollection<String> lines = pipeline.apply(
+    TextIO.read().from("gs://bucket/dir/file*.txt")
+);
+```
+
+#### apply(String, PTransform)
+
+Adds a named root PTransform to the pipeline.
+
+```java
+public <OutputT extends POutput> OutputT apply(
+    String name,
+    PTransform<? super PBegin, OutputT> root)
+```
+
+<ParamField path="name" type="String" required>
+  The name for this transform node in the pipeline graph
+</ParamField>
+
+<ParamField path="root" type="PTransform<? super PBegin, OutputT>" required>
+  The root transform to apply
+</ParamField>
+
+<ResponseField name="output" type="OutputT">
+  The output PCollection or POutput from the transform
+</ResponseField>
+
+**Example:**
+```java
+PCollection<String> lines = pipeline.apply(
+    "ReadInputFiles",
+    TextIO.read().from("gs://bucket/dir/file*.txt")
+);
+```
+
+### Running the Pipeline
+
+#### run()
+
+Runs the pipeline using the PipelineOptions specified during creation.
+
+```java
+public PipelineResult run()
+```
+
+<ResponseField name="result" type="PipelineResult">
+  The result of the pipeline execution
+</ResponseField>
+
+**Example:**
+```java
+Pipeline p = Pipeline.create();
+// ... build pipeline ...
+PipelineResult result = p.run();
+```
+
+#### run(PipelineOptions)
+
+Runs the pipeline using the specified PipelineOptions.
+
+```java
+public PipelineResult run(PipelineOptions options)
+```
+
+<ParamField path="options" type="PipelineOptions" required>
+  The pipeline options to use for execution
+</ParamField>
+
+<ResponseField name="result" type="PipelineResult">
+  The result of the pipeline execution
+</ResponseField>
+
+### Other Methods
+
+#### begin()
+
+Returns a PBegin for this pipeline, used as input for root transforms.
+
+```java
+public PBegin begin()
+```
+
+<ResponseField name="pbegin" type="PBegin">
+  A PBegin owned by this pipeline
+</ResponseField>
+
+#### getOptions()
+
+Returns the PipelineOptions for this pipeline.
+
+```java
+public PipelineOptions getOptions()
+```
+
+<ResponseField name="options" type="PipelineOptions">
+  The pipeline options
+</ResponseField>
+
+#### getCoderRegistry()
+
+Returns the CoderRegistry for this pipeline.
+
+```java
+public CoderRegistry getCoderRegistry()
+```
+
+<ResponseField name="registry" type="CoderRegistry">
+  The coder registry for encoding/decoding data
+</ResponseField>
+
+#### getSchemaRegistry()
+
+Returns the SchemaRegistry for this pipeline.
+
+```java
+public SchemaRegistry getSchemaRegistry()
+```
+
+<ResponseField name="registry" type="SchemaRegistry">
+  The schema registry for schema-aware transforms
+</ResponseField>
+
+## PipelineResult Interface
+
+Represents the result of a pipeline execution.
+
+### Methods
+
+#### getState()
+
+Retrieves the current state of the pipeline execution.
+
+```java
+State getState()
+```
+
+<ResponseField name="state" type="State">
+  The current state (UNKNOWN, STOPPED, RUNNING, DONE, FAILED, CANCELLED, UPDATED, UNRECOGNIZED)
+</ResponseField>
+
+#### cancel()
+
+Cancels the pipeline execution.
+
+```java
+State cancel() throws IOException
+```
+
+<ResponseField name="state" type="State">
+  The state after cancellation attempt
+</ResponseField>
+
+#### waitUntilFinish()
+
+Waits until the pipeline finishes and returns the final status.
+
+```java
+State waitUntilFinish()
+```
+
+<ResponseField name="state" type="State">
+  The final state of the pipeline
+</ResponseField>
+
+**Example:**
+```java
+PipelineResult result = pipeline.run();
+State finalState = result.waitUntilFinish();
+if (finalState == State.DONE) {
+    System.out.println("Pipeline completed successfully!");
+}
+```
+
+#### waitUntilFinish(Duration)
+
+Waits until the pipeline finishes with a timeout.
+
+```java
+State waitUntilFinish(Duration duration)
+```
+
+<ParamField path="duration" type="Duration" required>
+  The maximum time to wait (less than 1ms means infinite wait)
+</ParamField>
+
+<ResponseField name="state" type="State">
+  The final state of the pipeline, or null on timeout
+</ResponseField>
+
+#### metrics()
+
+Returns metrics from the pipeline execution.
+
+```java
+MetricResults metrics()
+```
+
+<ResponseField name="metrics" type="MetricResults">
+  The metrics from pipeline execution
+</ResponseField>
+
+## PipelineOptions Interface
+
+Configuration options for pipeline execution. Created using `PipelineOptionsFactory`.
+
+**Example:**
+```java
+PipelineOptions options = PipelineOptionsFactory.create();
+options.setRunner(DataflowRunner.class);
+options.setTempLocation("gs://bucket/temp");
+
+Pipeline pipeline = Pipeline.create(options);
+```
+
+## Complete Example
+
+```java
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.Count;
+import org.apache.beam.sdk.transforms.MapElements;
+import org.apache.beam.sdk.values.TypeDescriptors;
+
+public class WordCount {
+    public static void main(String[] args) {
+        // Create pipeline options
+        PipelineOptions options = PipelineOptionsFactory
+            .fromArgs(args)
+            .create();
+        
+        // Create the pipeline
+        Pipeline p = Pipeline.create(options);
+        
+        // Build the pipeline
+        p.apply("ReadLines", TextIO.read().from("input.txt"))
+         .apply("CountWords", Count.perElement())
+         .apply("FormatResults", MapElements
+             .into(TypeDescriptors.strings())
+             .via(kv -> kv.getKey() + ": " + kv.getValue()))
+         .apply("WriteResults", TextIO.write().to("output"));
+        
+        // Run the pipeline
+        p.run().waitUntilFinish();
+    }
+}
+```

@@ -1,80 +1,407 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Build your first Apache Beam pipeline in Java, Python, or Go
 ---
 
-## Get started in three steps
+This quickstart will guide you through installing Apache Beam and running your first WordCount pipeline. WordCount is a classic example that demonstrates core Beam concepts: reading data, applying transformations, and writing results.
 
-Get your documentation site running locally and make your first customization.
+## Choose your language
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+<Tabs>
+  <Tab title="Python">
+    ### Install Python SDK
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    Apache Beam requires Python 3.8 or newer. Install the Beam SDK using pip:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    ```bash
+    pip install apache-beam
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    For Google Cloud Dataflow support, install with the `gcp` extra:
+    
+    ```bash
+    pip install apache-beam[gcp]
+    ```
+    
+    ### Create your pipeline
+    
+    Create a file named `wordcount.py` with the following code:
+    
+    ```python
+import re
+import argparse
+import apache_beam as beam
+from apache_beam.io import ReadFromText, WriteToText
+from apache_beam.options.pipeline_options import PipelineOptions
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--input',
+        dest='input',
+        default='gs://dataflow-samples/shakespeare/kinglear.txt',
+        help='Input file to process.')
+    parser.add_argument(
+        '--output',
+        dest='output',
+        default='output.txt',
+        help='Output file to write results to.')
+    
+    known_args, pipeline_args = parser.parse_known_args(argv)
+    pipeline_options = PipelineOptions(pipeline_args)
+    
+    with beam.Pipeline(options=pipeline_options) as p:
+        # Read the text file into a PCollection
+        lines = p | ReadFromText(known_args.input)
+        
+        # Count the occurrences of each word
+        counts = (
+            lines
+            | 'Split' >> beam.FlatMap(lambda x: re.findall(r'[A-Za-z\']+', x))
+            | 'PairWithOne' >> beam.Map(lambda x: (x, 1))
+            | 'GroupAndSum' >> beam.CombinePerKey(sum))
+        
+        # Format the counts into strings
+        output = counts | 'Format' >> beam.Map(
+            lambda word_count: '%s: %s' % (word_count[0], word_count[1]))
+        
+        # Write the output
+        output | WriteToText(known_args.output)
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+if __name__ == '__main__':
+    main()
+    ```
+    
+    ### Run the pipeline
+    
+    Execute the pipeline locally using the DirectRunner:
+    
+    ```bash
+    python wordcount.py --output output.txt
+    ```
+    
+    This will process Shakespeare's King Lear and write word counts to `output.txt-00000-of-00001`.
+    
+    ### What's happening?
+    
+    <Steps>
+      <Step title="Read input">
+        `ReadFromText` reads lines from the input file into a PCollection of strings.
+      </Step>
+      
+      <Step title="Split into words">
+        `FlatMap` applies a regex to extract individual words from each line.
+      </Step>
+      
+      <Step title="Create key-value pairs">
+        `Map` transforms each word into a tuple of (word, 1).
+      </Step>
+      
+      <Step title="Count occurrences">
+        `CombinePerKey` groups by word and sums the counts.
+      </Step>
+      
+      <Step title="Format output">
+        Another `Map` formats each word-count pair as a string.
+      </Step>
+      
+      <Step title="Write results">
+        `WriteToText` writes the formatted results to output files.
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Java">
+    ### Install Java SDK
+    
+    Apache Beam requires Java 8 or newer. Add the Beam SDK to your Maven `pom.xml`:
+    
+    ```xml
+<dependencies>
+    <dependency>
+        <groupId>org.apache.beam</groupId>
+        <artifactId>beam-sdks-java-core</artifactId>
+        <version>2.53.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.beam</groupId>
+        <artifactId>beam-runners-direct-java</artifactId>
+        <version>2.53.0</version>
+        <scope>runtime</scope>
+    </dependency>
+</dependencies>
+    ```
+    
+    ### Create your pipeline
+    
+    Create `WordCount.java`:
+    
+    ```java
+package com.example;
 
-### Step 3: Go live
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.options.*;
+import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+
+public class WordCount {
+    
+    static class ExtractWordsFn extends DoFn<String, String> {
+        private final Pattern pattern = Pattern.compile("[a-zA-Z']+");
+        
+        @ProcessElement
+        public void processElement(@Element String element, 
+                                   OutputReceiver<String> receiver) {
+            Stream<String> stream = pattern.splitAsStream(element);
+            stream.forEach(word -> {
+                if (!word.isEmpty()) {
+                    receiver.output(word);
+                }
+            });
+        }
+    }
+    
+    static class FormatAsTextFn extends SimpleFunction<KV<String, Long>, String> {
+        @Override
+        public String apply(KV<String, Long> input) {
+            return input.getKey() + ": " + input.getValue();
+        }
+    }
+    
+    public interface WordCountOptions extends PipelineOptions {
+        @Description("Path of the file to read from")
+        @Default.String("gs://apache-beam-samples/shakespeare/kinglear.txt")
+        String getInputFile();
+        void setInputFile(String value);
+        
+        @Description("Path of the file to write to")
+        @Validation.Required
+        String getOutput();
+        void setOutput(String value);
+    }
+    
+    public static void main(String[] args) {
+        WordCountOptions options = PipelineOptionsFactory
+            .fromArgs(args)
+            .withValidation()
+            .as(WordCountOptions.class);
+        
+        Pipeline p = Pipeline.create(options);
+        
+        p.apply("ReadLines", TextIO.read().from(options.getInputFile()))
+         .apply("ExtractWords", ParDo.of(new ExtractWordsFn()))
+         .apply("CountWords", Count.perElement())
+         .apply("FormatResults", MapElements.via(new FormatAsTextFn()))
+         .apply("WriteCounts", TextIO.write().to(options.getOutput()));
+        
+        p.run().waitUntilFinish();
+    }
+}
+    ```
+    
+    ### Run the pipeline
+    
+    Compile and run your pipeline:
+    
+    ```bash
+    mvn compile exec:java -Dexec.mainClass=com.example.WordCount \
+        -Dexec.args="--output=output.txt"
+    ```
+    
+    ### What's happening?
+    
+    <Steps>
+      <Step title="Read input">
+        `TextIO.read()` reads lines from the input file into a PCollection.
+      </Step>
+      
+      <Step title="Extract words">
+        `ParDo` applies the `ExtractWordsFn` DoFn to split lines into words.
+      </Step>
+      
+      <Step title="Count occurrences">
+        `Count.perElement()` counts how many times each word appears.
+      </Step>
+      
+      <Step title="Format output">
+        `MapElements` formats each KV&lt;String, Long&gt; as a readable string.
+      </Step>
+      
+      <Step title="Write results">
+        `TextIO.write()` writes the formatted results to output files.
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Go">
+    ### Install Go SDK
+    
+    Apache Beam requires Go 1.20 or newer. Install the Beam Go SDK:
+    
+    ```bash
+    go get -u github.com/apache/beam/sdks/v2/go/pkg/beam
+    ```
+    
+    ### Create your pipeline
+    
+    Create `wordcount.go`:
+    
+    ```go
+package main
+
+import (
+    "context"
+    "flag"
+    "fmt"
+    "log"
+    "regexp"
+    "strings"
+    
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/io/textio"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/register"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/stats"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/x/beamx"
+)
+
+var (
+    input  = flag.String("input", "gs://apache-beam-samples/shakespeare/kinglear.txt", 
+                        "Input file")
+    output = flag.String("output", "", "Output file (required)")
+    wordRE = regexp.MustCompile(`[a-zA-Z]+('[a-z])?`)
+)
+
+func init() {
+    register.DoFn3x0[context.Context, string, func(string)](&extractFn{})
+    register.Function2x1(formatFn)
+    register.Emitter1[string]()
+}
+
+type extractFn struct{}
+
+func (f *extractFn) ProcessElement(ctx context.Context, line string, 
+                                   emit func(string)) {
+    for _, word := range wordRE.FindAllString(line, -1) {
+        emit(word)
+    }
+}
+
+func formatFn(w string, c int) string {
+    return fmt.Sprintf("%s: %v", w, c)
+}
+
+func CountWords(s beam.Scope, lines beam.PCollection) beam.PCollection {
+    s = s.Scope("CountWords")
+    col := beam.ParDo(s, &extractFn{}, lines)
+    return stats.Count(s, col)
+}
+
+func main() {
+    flag.Parse()
+    beam.Init()
+    
+    if *output == "" {
+        log.Fatal("No output provided")
+    }
+    
+    p := beam.NewPipeline()
+    s := p.Root()
+    
+    lines := textio.Read(s, *input)
+    counted := CountWords(s, lines)
+    formatted := beam.ParDo(s, formatFn, counted)
+    textio.Write(s, *output, formatted)
+    
+    if err := beamx.Run(context.Background(), p); err != nil {
+        log.Fatalf("Failed to execute job: %v", err)
+    }
+}
+    ```
+    
+    ### Run the pipeline
+    
+    Execute the pipeline locally:
+    
+    ```bash
+    go run wordcount.go --output=output.txt
+    ```
+    
+    ### What's happening?
+    
+    <Steps>
+      <Step title="Read input">
+        `textio.Read()` reads lines from the input file into a PCollection.
+      </Step>
+      
+      <Step title="Extract words">
+        The `extractFn` DoFn uses regex to extract words from each line and emits them.
+      </Step>
+      
+      <Step title="Count occurrences">
+        `stats.Count()` counts occurrences of each word.
+      </Step>
+      
+      <Step title="Format output">
+        The `formatFn` function formats word-count pairs as strings.
+      </Step>
+      
+      <Step title="Write results">
+        `textio.Write()` writes the formatted results to output files.
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Running on other runners
+
+By default, pipelines run locally using the DirectRunner. To run on a distributed backend:
+
+<CodeGroup>
+```bash Python - Dataflow
+python wordcount.py \
+  --runner=DataflowRunner \
+  --project=YOUR_PROJECT_ID \
+  --region=us-central1 \
+  --temp_location=gs://YOUR_BUCKET/temp \
+  --output=gs://YOUR_BUCKET/output
+```
+
+```bash Java - Flink
+mvn compile exec:java -Dexec.mainClass=com.example.WordCount \
+  -Dexec.args="--runner=FlinkRunner \
+               --flinkMaster=localhost:8081 \
+               --output=output.txt"
+```
+
+```bash Go - Spark
+go run wordcount.go \
+  --runner=spark \
+  --endpoint=localhost:7077 \
+  --output=output.txt
+```
+</CodeGroup>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Programming guide" icon="book" href="https://beam.apache.org/documentation/programming-guide/">
+    Learn about advanced transforms, windowing, and triggers
+  </Card>
+  
+  <Card title="Pipeline I/O" icon="database" href="https://beam.apache.org/documentation/io/built-in/">
+    Connect to databases, message queues, and cloud storage
+  </Card>
+  
+  <Card title="Testing pipelines" icon="vial" href="https://beam.apache.org/documentation/pipelines/test-your-pipeline/">
+    Write unit and integration tests for your pipelines
+  </Card>
+  
+  <Card title="Tour of Beam" icon="graduation-cap" href="https://tour.beam.apache.org/">
+    Interactive tutorials covering all Beam concepts
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

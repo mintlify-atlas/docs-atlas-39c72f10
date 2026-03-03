@@ -1,0 +1,374 @@
+---
+title: Java SDK
+description: Build Apache Beam pipelines using the Java SDK
+---
+
+The Apache Beam Java SDK provides a comprehensive framework for building batch and streaming data processing pipelines in Java. It offers strong typing, extensive I/O connectors, and excellent IDE support.
+
+## Installation
+
+<Steps>
+  <Step title="Set up Java Development Kit">
+    Install JDK 8 or later. You can verify your Java installation:
+    
+    ```bash
+    java -version
+    ```
+  </Step>
+
+  <Step title="Add Beam dependency to your project">
+    Choose your build tool and add the Apache Beam dependency:
+
+    <CodeGroup>
+      ```xml Maven
+      <dependency>
+        <groupId>org.apache.beam</groupId>
+        <artifactId>beam-sdks-java-core</artifactId>
+        <version>2.73.0</version>
+      </dependency>
+      
+      <!-- Add a runner dependency -->
+      <dependency>
+        <groupId>org.apache.beam</groupId>
+        <artifactId>beam-runners-direct-java</artifactId>
+        <version>2.73.0</version>
+        <scope>runtime</scope>
+      </dependency>
+      ```
+
+      ```gradle Gradle
+      dependencies {
+          implementation 'org.apache.beam:beam-sdks-java-core:2.73.0'
+          
+          // Add a runner dependency
+          runtimeOnly 'org.apache.beam:beam-runners-direct-java:2.73.0'
+      }
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Add I/O connectors (optional)">
+    Include additional dependencies for specific data sources:
+
+    <CodeGroup>
+      ```xml Google Cloud
+      <dependency>
+        <groupId>org.apache.beam</groupId>
+        <artifactId>beam-sdks-java-io-google-cloud-platform</artifactId>
+        <version>2.73.0</version>
+      </dependency>
+      ```
+
+      ```xml Apache Kafka
+      <dependency>
+        <groupId>org.apache.beam</groupId>
+        <artifactId>beam-sdks-java-io-kafka</artifactId>
+        <version>2.73.0</version>
+      </dependency>
+      ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Quick Start
+
+Here's a simple word count example demonstrating core Beam concepts:
+
+```java
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.Count;
+import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.MapElements;
+import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.SimpleFunction;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.PCollection;
+
+public class WordCount {
+  
+  // DoFn to extract words from each line
+  static class ExtractWordsFn extends DoFn<String, String> {
+    @ProcessElement
+    public void processElement(ProcessContext c) {
+      String[] words = c.element().split("[^\\p{L}]+");
+      for (String word : words) {
+        if (!word.isEmpty()) {
+          c.output(word);
+        }
+      }
+    }
+  }
+  
+  // Format the word count results
+  public static class FormatAsTextFn extends SimpleFunction<KV<String, Long>, String> {
+    @Override
+    public String apply(KV<String, Long> input) {
+      return input.getKey() + ": " + input.getValue();
+    }
+  }
+  
+  public static void main(String[] args) {
+    PipelineOptions options = PipelineOptionsFactory.fromArgs(args).create();
+    Pipeline pipeline = Pipeline.create(options);
+    
+    pipeline
+      .apply("Read", TextIO.read().from("gs://dataflow-samples/shakespeare/*.txt"))
+      .apply("ExtractWords", ParDo.of(new ExtractWordsFn()))
+      .apply("CountWords", Count.perElement())
+      .apply("FormatResults", MapElements.via(new FormatAsTextFn()))
+      .apply("Write", TextIO.write().to("output/wordcount"));
+    
+    pipeline.run().waitUntilFinish();
+  }
+}
+```
+
+## Core Concepts
+
+### Pipeline
+
+A `Pipeline` encapsulates your entire data processing task. It manages the directed acyclic graph (DAG) of transforms and data:
+
+```java
+PipelineOptions options = PipelineOptionsFactory.fromArgs(args).create();
+Pipeline pipeline = Pipeline.create(options);
+```
+
+### PCollection
+
+`PCollection<T>` represents a distributed dataset that your pipeline operates on. PCollections can be bounded (batch) or unbounded (streaming).
+
+### PTransform
+
+Transforms define the data processing operations. Common transforms include:
+
+- **ParDo**: Parallel processing for element-wise transformations
+- **GroupByKey**: Groups elements by key
+- **Combine**: Combines grouped values
+- **Flatten**: Merges multiple PCollections
+- **Partition**: Splits a PCollection into multiple collections
+
+### DoFn
+
+`DoFn` is the primary way to implement custom processing logic:
+
+```java
+static class MyDoFn extends DoFn<InputType, OutputType> {
+  @ProcessElement
+  public void processElement(@Element InputType element, OutputReceiver<OutputType> out) {
+    // Process element and emit output
+    out.output(transform(element));
+  }
+}
+```
+
+## SDK Features
+
+### Type Safety
+
+Java SDK provides compile-time type checking for transforms and data types:
+
+```java
+PCollection<String> lines = ...;
+PCollection<KV<String, Integer>> wordCounts = lines
+  .apply(ParDo.of(new ExtractWordsFn()))
+  .apply(Count.perElement());
+```
+
+### Windowing
+
+Process unbounded data using time-based windows:
+
+```java
+import org.apache.beam.sdk.transforms.windowing.*;
+
+PCollection<String> windowedData = input
+  .apply(Window.<String>into(
+    FixedWindows.of(Duration.standardMinutes(1))))
+  .apply(/* your transforms */);
+```
+
+### Side Inputs
+
+Access additional data during processing:
+
+```java
+PCollectionView<Map<String, Integer>> sideInputView = 
+  sideData.apply(View.asMap());
+
+PCollection<String> results = mainData.apply(
+  ParDo.of(new DoFn<String, String>() {
+    @ProcessElement
+    public void processElement(ProcessContext c) {
+      Map<String, Integer> map = c.sideInput(sideInputView);
+      // Use side input data
+    }
+  }).withSideInputs(sideInputView));
+```
+
+### Metrics and Logging
+
+Monitor pipeline execution with built-in metrics:
+
+```java
+import org.apache.beam.sdk.metrics.*;
+
+public class MyDoFn extends DoFn<String, String> {
+  private final Counter processedElements = Metrics.counter(MyDoFn.class, "processed");
+  
+  @ProcessElement
+  public void processElement(ProcessContext c) {
+    processedElements.inc();
+    // Process element
+  }
+}
+```
+
+## I/O Connectors
+
+The Java SDK includes extensive I/O support:
+
+- **File-based**: TextIO, AvroIO, ParquetIO, XML, JSON
+- **Google Cloud**: BigQuery, Bigtable, Spanner, Pub/Sub, Cloud Storage
+- **Apache**: Kafka, HBase, Cassandra, Solr, Hadoop
+- **Databases**: JDBC, MongoDB, Redis, Elasticsearch
+- **Streaming**: Kinesis, MQTT, AMQP
+
+```java
+// Reading from BigQuery
+PCollection<TableRow> rows = pipeline.apply(
+  BigQueryIO.readTableRows().from("project:dataset.table"));
+
+// Writing to Kafka
+events.apply(KafkaIO.<Void, String>write()
+  .withBootstrapServers("localhost:9092")
+  .withTopic("my-topic")
+  .withValueSerializer(StringSerializer.class));
+```
+
+## Running Pipelines
+
+### Direct Runner (Local)
+
+For testing and development:
+
+```bash
+mvn compile exec:java -Dexec.mainClass=com.example.WordCount \
+  --runner=DirectRunner
+```
+
+### Google Cloud Dataflow
+
+For production workloads on Google Cloud:
+
+```bash
+mvn compile exec:java -Dexec.mainClass=com.example.WordCount \
+  --runner=DataflowRunner \
+  --project=YOUR_PROJECT_ID \
+  --region=us-central1 \
+  --tempLocation=gs://YOUR_BUCKET/temp
+```
+
+### Apache Flink
+
+Run on an Apache Flink cluster:
+
+```bash
+mvn package -Pflink-runner
+flink run target/your-pipeline-bundled.jar \
+  --runner=FlinkRunner \
+  --flinkMaster=localhost:8081
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Composite Transforms">
+    Encapsulate reusable pipeline logic:
+    
+    ```java
+    public static class CountWords extends 
+        PTransform<PCollection<String>, PCollection<KV<String, Long>>> {
+      
+      @Override
+      public PCollection<KV<String, Long>> expand(PCollection<String> lines) {
+        return lines
+          .apply(ParDo.of(new ExtractWordsFn()))
+          .apply(Count.perElement());
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Implement Efficient DoFns">
+    Use `@Setup` and `@Teardown` for expensive initialization:
+    
+    ```java
+    class MyDoFn extends DoFn<String, String> {
+      private transient ExpensiveResource resource;
+      
+      @Setup
+      public void setup() {
+        resource = new ExpensiveResource();
+      }
+      
+      @Teardown
+      public void teardown() {
+        resource.close();
+      }
+      
+      @ProcessElement
+      public void processElement(ProcessContext c) {
+        // Use resource
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Handle Large State Efficiently">
+    Use State API for stateful processing:
+    
+    ```java
+    class StatefulDoFn extends DoFn<KV<String, Integer>, String> {
+      @StateId("sum")
+      private final StateSpec<ValueState<Integer>> sumSpec = 
+        StateSpecs.value();
+      
+      @ProcessElement
+      public void process(
+          @Element KV<String, Integer> element,
+          @StateId("sum") ValueState<Integer> sum) {
+        Integer current = sum.read();
+        sum.write((current == null ? 0 : current) + element.getValue());
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="book" href="https://beam.apache.org/releases/javadoc/">
+    Complete JavaDoc documentation
+  </Card>
+  <Card title="Code Examples" icon="code" href="https://github.com/apache/beam/tree/master/examples/java">
+    Sample pipelines and patterns
+  </Card>
+  <Card title="I/O Transforms" icon="plug" href="https://beam.apache.org/documentation/io/built-in/">
+    Available connectors and I/O transforms
+  </Card>
+  <Card title="Programming Guide" icon="graduation-cap" href="https://beam.apache.org/documentation/programming-guide/">
+    In-depth SDK concepts
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+- Explore [Runners](/runners) to deploy your pipeline
+- Learn about [windowing and triggers](/concepts/windowing) for streaming data
+- Check out [testing best practices](/testing) for your pipelines
+- Browse [common patterns](/patterns) for pipeline design

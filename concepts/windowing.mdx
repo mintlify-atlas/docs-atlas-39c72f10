@@ -1,0 +1,558 @@
+---
+title: 'Windowing'
+description: 'Divide unbounded data into logical windows for processing'
+---
+
+Windowing divides a PCollection's elements into finite groups based on timestamps. This is essential for processing unbounded (streaming) data and useful for bounded (batch) data analysis.
+
+## What is Windowing?
+
+From the Apache Beam source code:
+
+<CodeGroup>
+```java Java (Window.java:38-78)
+/**
+ * {@link Window} logically divides up or groups the elements of a {@link PCollection} 
+ * into finite windows according to a {@link WindowFn}. The output of {@code Window} 
+ * contains the same elements as input, but they have been logically assigned to windows.
+ *
+ * Windowing a {@link PCollection} divides the elements into windows based on the 
+ * associated event time for each element. This is especially useful for PCollections 
+ * with unbounded size, since it allows operating on a sub-group of the elements placed 
+ * into a related window.
+ *
+ * Several predefined {@link WindowFn}s are provided:
+ * - {@link FixedWindows} partitions the timestamps into fixed-width intervals.
+ * - {@link SlidingWindows} places data into overlapping fixed-width intervals.
+ * - {@link Sessions} groups data into sessions where each item in a window is 
+ *   separated from the next by no more than a specified gap.
+ */
+```
+
+```python Python
+def WindowInto(windowfn, trigger=None, accumulation_mode=None, 
+               timestamp_combiner=None, allowed_lateness=0):
+    """Assigns each element to windows based on the given WindowFn."""
+```
+</CodeGroup>
+
+## Why Windowing?
+
+Windowing enables you to:
+
+- **Process infinite streams** by dividing them into finite chunks
+- **Perform time-based aggregations** (e.g., hourly totals, daily averages)
+- **Handle late-arriving data** with configurable lateness policies
+- **Analyze time-based patterns** in your data
+
+<Info>
+All PCollections have a windowing strategy. By default, elements are assigned to a single global window that spans the entire dataset.
+</Info>
+
+## Built-in Window Functions
+
+### Fixed Windows (Tumbling)
+
+Divide time into non-overlapping, fixed-duration intervals:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.FixedWindows;
+import org.apache.beam.sdk.transforms.windowing.Window;
+import org.joda.time.Duration;
+
+// 5-minute fixed windows
+PCollection<String> windowed = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5))));
+
+// 1-hour windows
+PCollection<String> hourly = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardHours(1))));
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+
+# 5-minute fixed windows
+windowed = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60))  # seconds
+
+# 1-hour windows
+hourly = input_data | beam.WindowInto(
+    window.FixedWindows(60 * 60))  # seconds
+```
+
+```go Go
+import (
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/core/graph/window"
+)
+
+// 5-minute fixed windows
+windowed := beam.WindowInto(s, 
+    window.NewFixedWindows(5 * time.Minute), input)
+
+// 1-hour windows
+hourly := beam.WindowInto(s,
+    window.NewFixedWindows(time.Hour), input)
+```
+</CodeGroup>
+
+**Use case**: Calculating metrics over regular intervals (hourly sales, daily averages)
+
+```
+Time:  0:00  0:05  0:10  0:15  0:20  0:25
+Window: [----][----][----][----][----][----]
+```
+
+### Sliding Windows (Hopping)
+
+Create overlapping windows with a specified period and duration:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.SlidingWindows;
+
+// 10-minute windows, starting every 5 minutes
+PCollection<String> windowed = input.apply(
+    Window.<String>into(
+        SlidingWindows.of(Duration.standardMinutes(10))
+            .every(Duration.standardMinutes(5))));
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+
+# 10-minute windows, starting every 5 minutes  
+windowed = input_data | beam.WindowInto(
+    window.SlidingWindows(size=10 * 60, period=5 * 60))
+```
+
+```go Go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/core/graph/window"
+
+// 10-minute windows, starting every 5 minutes
+windowed := beam.WindowInto(s,
+    window.NewSlidingWindows(10*time.Minute, 5*time.Minute), input)
+```
+</CodeGroup>
+
+**Use case**: Moving averages, overlapping analytics
+
+```
+Time:     0:00  0:05  0:10  0:15  0:20
+Window1:  [----------]
+Window2:        [----------]
+Window3:              [----------]
+Window4:                    [----------]
+```
+
+### Session Windows
+
+Group events separated by a minimum gap duration:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.Sessions;
+
+// Session windows with 10-minute gap
+PCollection<String> sessions = input.apply(
+    Window.<String>into(
+        Sessions.withGapDuration(Duration.standardMinutes(10))));
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+
+# Session windows with 10-minute gap
+sessions = input_data | beam.WindowInto(
+    window.Sessions(gap_size=10 * 60))
+```
+
+```go Go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam/core/graph/window"
+
+// Session windows with 10-minute gap
+sessions := beam.WindowInto(s,
+    window.NewSessions(10*time.Minute), input)
+```
+</CodeGroup>
+
+**Use case**: User sessions, activity bursts, click streams
+
+```
+Events:   *    *  *              *    *
+Session:  [--------]             [------]
+          ^gap>10min^             ^gap<10min
+```
+
+### Global Windows
+
+The default window - all elements in a single window:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.GlobalWindows;
+
+// Explicitly specify global windows (usually not needed)
+PCollection<String> global = input.apply(
+    Window.<String>into(new GlobalWindows()));
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+
+# Explicitly specify global windows (usually not needed)
+global_win = input_data | beam.WindowInto(window.GlobalWindows())
+```
+</CodeGroup>
+
+<Note>
+Global windows are the default. You only need to specify them explicitly when changing from another windowing strategy.
+</Note>
+
+## Windowing Example: Hourly Traffic Count
+
+Here's a complete example from the Apache Beam examples:
+
+<CodeGroup>
+```java Java (WindowedWordCount.java)
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.transforms.windowing.FixedWindows;
+import org.apache.beam.sdk.transforms.windowing.Window;
+import org.joda.time.Duration;
+
+Pipeline p = Pipeline.create(options);
+
+// Read streaming data
+PCollection<String> input = p.apply(
+    PubsubIO.readStrings().fromTopic("projects/myproject/topics/traffic"));
+
+// Apply 1-hour fixed windows
+PCollection<String> windowed = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardHours(1))));
+
+// Count events per window
+PCollection<KV<String, Long>> counts = windowed
+    .apply("ExtractRoute", ParDo.of(new ExtractRouteFn()))
+    .apply("CountPerRoute", Count.perElement());
+
+// Write results
+counts.apply("FormatResults", ParDo.of(new FormatResultsFn()))
+      .apply(BigQueryIO.write()...);
+
+p.run();
+```
+
+```python Python (windowed_wordcount.py)
+import apache_beam as beam
+from apache_beam import window
+
+class FormatDoFn(beam.DoFn):
+    def process(self, element, window=beam.DoFn.WindowParam):
+        word, count = element
+        window_start = window.start.to_utc_datetime()
+        window_end = window.end.to_utc_datetime()
+        yield {
+            'word': word,
+            'count': count,
+            'window_start': window_start,
+            'window_end': window_end
+        }
+
+with beam.Pipeline() as p:
+    # Read streaming data
+    lines = p | beam.io.ReadFromPubSub(topic='...')
+    
+    # Apply 1-hour fixed windows
+    windowed = lines | beam.WindowInto(window.FixedWindows(60 * 60))
+    
+    # Count words per window
+    counts = (
+        windowed
+        | 'Split' >> beam.FlatMap(lambda x: x.split())
+        | 'Count' >> beam.combiners.Count.PerElement()
+    )
+    
+    # Format with window information
+    formatted = counts | beam.ParDo(FormatDoFn())
+    
+    # Write results
+    formatted | beam.io.WriteToBigQuery(...)
+```
+</CodeGroup>
+
+## Accessing Window Information
+
+You can access window metadata in your DoFns:
+
+<CodeGroup>
+```java Java
+class AddWindowInfoFn extends DoFn<String, String> {
+    @ProcessElement
+    public void processElement(
+            @Element String element,
+            BoundedWindow window,
+            OutputReceiver<String> out) {
+        
+        String windowInfo = String.format(
+            "Element '%s' in window [%s..%s)",
+            element,
+            window.maxTimestamp().minus(window.maxTimestamp()),
+            window.maxTimestamp());
+        
+        out.output(windowInfo);
+    }
+}
+```
+
+```python Python
+class AddWindowInfoFn(beam.DoFn):
+    def process(self, element, window=beam.DoFn.WindowParam):
+        window_info = (
+            f"Element '{element}' in window "
+            f"[{window.start}..{window.end})"
+        )
+        yield window_info
+```
+
+```go Go
+func addWindowInfo(et beam.EventTime, w typex.Window, element string) string {
+    iw := w.(window.IntervalWindow)
+    return fmt.Sprintf(
+        "Element '%s' in window [%s..%s)",
+        element, iw.Start, iw.End)
+}
+```
+</CodeGroup>
+
+## Advanced Windowing Configuration
+
+### Allowed Lateness
+
+Specify how long to wait for late data after a window closes:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.AfterWatermark;
+import org.apache.beam.sdk.transforms.windowing.Window;
+
+PCollection<String> windowed = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .withAllowedLateness(Duration.standardMinutes(10))
+        .discardingFiredPanes());
+```
+
+```python Python
+from apache_beam import window
+
+windowed = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60),
+    allowed_lateness=10 * 60)  # 10 minutes
+```
+</CodeGroup>
+
+<Warning>
+Late data arriving after the allowed lateness period is **discarded**. Set this value based on your data's characteristics and latency requirements.
+</Warning>
+
+### Timestamp Combiner
+
+Control how timestamps are combined when elements are grouped:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.TimestampCombiner;
+
+PCollection<KV<String, Iterable<Integer>>> grouped = pairs.apply(
+    Window.<KV<String, Integer>>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .withTimestampCombiner(TimestampCombiner.EARLIEST)
+    .apply(GroupByKey.create()));
+```
+
+```python Python
+from apache_beam.transforms.window import TimestampCombiner
+
+grouped = (
+    pairs 
+    | beam.WindowInto(
+        window.FixedWindows(5 * 60),
+        timestamp_combiner=TimestampCombiner.OUTPUT_AT_EARLIEST)
+    | beam.GroupByKey()
+)
+```
+</CodeGroup>
+
+Options:
+- `EARLIEST`: Use the earliest timestamp
+- `LATEST`: Use the latest timestamp  
+- `END_OF_WINDOW`: Use the end of the window
+
+## Windowing with Aggregations
+
+Windowing is most powerful when combined with aggregations:
+
+<CodeGroup>
+```java Java
+// Count events per 5-minute window
+PCollection<Long> counts = input
+    .apply(Window.into(FixedWindows.of(Duration.standardMinutes(5))))
+    .apply(Count.globally().withoutDefaults());
+
+// Sum values per key per hour
+PCollection<KV<String, Integer>> sums = keyedValues
+    .apply(Window.into(FixedWindows.of(Duration.standardHours(1))))
+    .apply(Sum.integersPerKey());
+
+// Average per 10-minute sliding window
+PCollection<Double> averages = numbers
+    .apply(Window.into(
+        SlidingWindows.of(Duration.standardMinutes(10))
+            .every(Duration.standardMinutes(5))))
+    .apply(Mean.globally());
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+from apache_beam import combiners
+
+# Count events per 5-minute window
+counts = (
+    input_data
+    | beam.WindowInto(window.FixedWindows(5 * 60))
+    | beam.combiners.Count.Globally().without_defaults()
+)
+
+# Sum values per key per hour
+sums = (
+    keyed_values
+    | beam.WindowInto(window.FixedWindows(60 * 60))
+    | beam.CombinePerKey(sum)
+)
+
+# Average per 10-minute sliding window
+averages = (
+    numbers
+    | beam.WindowInto(window.SlidingWindows(10 * 60, 5 * 60))
+    | beam.combiners.Mean.Globally()
+)
+```
+</CodeGroup>
+
+## Watermarks
+
+Watermarks track progress in event time:
+
+<Info>
+A **watermark** is a timestamp that indicates Beam believes all data with timestamps before this point has been processed. When the watermark passes the end of a window, the window is considered complete.
+</Info>
+
+```
+Event Time:  0:00  0:05  0:10  0:15  0:20
+Watermark:   ------>--------------->
+                   ^
+             Elements with timestamps 
+             before this are complete
+```
+
+## Best Practices
+
+<Note>
+**Choose appropriate window sizes**: Balance between latency (smaller windows = faster results) and efficiency (larger windows = less overhead).
+</Note>
+
+<Tip>
+**Session windows for user activity**: Use session windows to track user sessions, where activity bursts are separated by periods of inactivity.
+</Tip>
+
+<Warning>
+**Beware of data skew**: Ensure your keys are well-distributed across windows to avoid hotspots.
+</Warning>
+
+### Common Patterns
+
+1. **Hourly aggregations**: Use 1-hour fixed windows for reports
+2. **Real-time dashboards**: Use small fixed windows (1-5 minutes)
+3. **Moving averages**: Use sliding windows
+4. **User sessions**: Use session windows with appropriate gap
+5. **Daily summaries**: Use 1-day fixed windows
+
+## Complete Example: Session Analysis
+
+<CodeGroup>
+```java Java
+Pipeline p = Pipeline.create(options);
+
+// Read click events
+PCollection<ClickEvent> clicks = p.apply(
+    PubsubIO.read(ClickEvent.class).fromTopic("clicks"));
+
+// Group into user sessions (30-minute inactivity gap)
+PCollection<KV<String, ClickEvent>> userClicks = clicks.apply(
+    ParDo.of(new ExtractUserIdFn()));
+
+PCollection<KV<String, Iterable<ClickEvent>>> sessions = userClicks
+    .apply(Window.into(Sessions.withGapDuration(Duration.standardMinutes(30))))
+    .apply(GroupByKey.create());
+
+// Calculate session metrics
+PCollection<SessionMetrics> metrics = sessions.apply(
+    ParDo.of(new ComputeSessionMetricsFn()));
+
+metrics.apply(BigQueryIO.write()...);
+p.run();
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+
+class ComputeSessionMetrics(beam.DoFn):
+    def process(self, element, window=beam.DoFn.WindowParam):
+        user_id, clicks = element
+        session_length = (window.end - window.start).total_seconds()
+        yield {
+            'user_id': user_id,
+            'click_count': len(list(clicks)),
+            'session_start': window.start.isoformat(),
+            'session_end': window.end.isoformat(),
+            'session_length_seconds': session_length
+        }
+
+with beam.Pipeline() as p:
+    # Read click events
+    clicks = p | beam.io.ReadFromPubSub(topic='clicks')
+    
+    # Extract user ID and apply session windows
+    sessions = (
+        clicks
+        | 'ParseJson' >> beam.Map(json.loads)
+        | 'ExtractUserId' >> beam.Map(lambda x: (x['user_id'], x))
+        | 'SessionWindows' >> beam.WindowInto(
+            window.Sessions(gap_size=30 * 60))  # 30 minutes
+        | 'GroupByUser' >> beam.GroupByKey()
+    )
+    
+    # Compute metrics
+    metrics = sessions | beam.ParDo(ComputeSessionMetrics())
+    
+    # Write to BigQuery
+    metrics | beam.io.WriteToBigQuery(...)
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Triggers" icon="clock" href="/concepts/triggers">
+    Control when windowed results are emitted
+  </Card>
+  <Card title="Transforms" icon="arrows-turn-right" href="/concepts/transforms">
+    Apply transformations to windowed data
+  </Card>
+</CardGroup>

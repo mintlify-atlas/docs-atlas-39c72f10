@@ -1,0 +1,194 @@
+---
+title: 'Core Concepts Overview'
+description: 'Understanding the fundamental concepts of Apache Beam'
+---
+
+Apache Beam provides a unified programming model for both batch and streaming data processing. This section introduces the core concepts that form the foundation of Beam pipelines.
+
+## What is Apache Beam?
+
+Apache Beam is an open-source, unified model for defining both batch and streaming data-parallel processing pipelines. Using one of the Beam SDKs (Java, Python, or Go), you build a program that defines the pipeline. The pipeline is then executed by one of Beam's supported distributed processing back-ends, which include Apache Flink, Apache Spark, and Google Cloud Dataflow.
+
+## The Beam Model
+
+The Beam programming model simplifies the mechanics of large-scale data processing. At its core, a Beam pipeline:
+
+1. **Reads** data from one or more sources
+2. **Transforms** the data through a series of operations
+3. **Writes** the results to one or more destinations
+
+## Core Components
+
+Every Beam pipeline is built using these fundamental building blocks:
+
+### Pipeline
+
+A `Pipeline` encapsulates your entire data processing task, from start to finish. It manages a directed acyclic graph (DAG) of PTransforms and the PCollections they consume and produce.
+
+<CodeGroup>
+```java Java
+PipelineOptions options = PipelineOptionsFactory.create();
+Pipeline p = Pipeline.create(options);
+```
+
+```python Python
+import apache_beam as beam
+
+with beam.Pipeline() as p:
+    # Your pipeline logic here
+    pass
+```
+
+```go Go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam"
+
+p := beam.NewPipeline()
+s := p.Root()
+```
+</CodeGroup>
+
+### PCollection
+
+A `PCollection` represents a distributed dataset that your Beam pipeline operates on. It can be bounded (finite) or unbounded (infinite/streaming). PCollections are immutable - transforms create new PCollections rather than modifying existing ones.
+
+**Key characteristics:**
+- **Immutable**: Once created, elements cannot be changed
+- **Distributed**: Data is distributed across multiple workers
+- **Timestamped**: Each element has an associated timestamp
+- **Windowed**: Elements are organized into windows for processing
+
+### PTransform
+
+A `PTransform` represents a data processing operation that takes one or more PCollections as input and produces one or more PCollections as output. Transforms can be:
+
+- **Root transforms**: Read data from external sources (e.g., `TextIO.Read`, `Create`)
+- **Processing transforms**: Transform data (e.g., `ParDo`, `Map`, `Filter`)
+- **Aggregating transforms**: Combine data (e.g., `GroupByKey`, `Combine`)
+- **Output transforms**: Write data to external sinks (e.g., `TextIO.Write`)
+
+## Data Processing Paradigms
+
+### Bounded vs Unbounded Data
+
+<Info>
+**Bounded data** has a fixed size - it's batch processing. **Unbounded data** is continuously generated - it's streaming processing. Beam handles both with the same programming model.
+</Info>
+
+- **Bounded (Batch)**: Traditional batch processing of finite datasets
+- **Unbounded (Streaming)**: Continuous processing of data streams
+
+### Windowing
+
+Windowing divides unbounded data into logical, finite chunks for processing. Common windowing strategies include:
+
+- **Fixed (Tumbling) Windows**: Non-overlapping, fixed-size time intervals
+- **Sliding Windows**: Overlapping, fixed-size time intervals
+- **Session Windows**: Dynamic windows based on data activity
+
+### Triggers
+
+Triggers determine when to emit results for a window. They control:
+
+- When to produce early (speculative) results
+- When to produce final results
+- How to handle late-arriving data
+
+## Why These Concepts Matter
+
+<Note>
+Understanding these core concepts is essential because they form the vocabulary for expressing any data processing task in Beam, whether batch or streaming.
+</Note>
+
+**For batch processing**, you typically:
+- Work with bounded PCollections
+- Use global windowing (implicit)
+- Rely on default triggers
+
+**For streaming processing**, you must:
+- Handle unbounded PCollections
+- Define explicit windowing strategies
+- Configure triggers for timely results
+- Manage late data
+
+## Next Steps
+
+Now that you understand the overview, dive deeper into each concept:
+
+<CardGroup cols={2}>
+  <Card title="Programming Model" icon="code" href="/concepts/programming-model">
+    Learn how to structure Beam pipelines
+  </Card>
+  <Card title="Pipelines" icon="diagram-project" href="/concepts/pipelines">
+    Create and configure pipelines
+  </Card>
+  <Card title="PCollections" icon="database" href="/concepts/pcollections">
+    Work with distributed datasets
+  </Card>
+  <Card title="Transforms" icon="arrows-turn-right" href="/concepts/transforms">
+    Apply data transformations
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+Here's a simple example showing how these concepts work together:
+
+<CodeGroup>
+```java Java
+Pipeline p = Pipeline.create(options);
+
+// PCollection of strings (bounded)
+PCollection<String> lines = p.apply(TextIO.read().from("input.txt"));
+
+// PTransform: split into words
+PCollection<String> words = lines.apply(
+    FlatMapElements.into(TypeDescriptors.strings())
+        .via(line -> Arrays.asList(line.split("\\s+"))));
+
+// PTransform: count occurrences
+PCollection<KV<String, Long>> counts = words.apply(Count.perElement());
+
+p.run();
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam.transforms import combiners
+
+with beam.Pipeline() as p:
+    # PCollection of strings (bounded)
+    lines = p | beam.io.ReadFromText('input.txt')
+    
+    # PTransform: split into words
+    words = lines | beam.FlatMap(lambda line: line.split())
+    
+    # PTransform: count occurrences
+    counts = words | beam.combiners.Count.PerElement()
+```
+
+```go Go
+import (
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/io/textio"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/stats"
+)
+
+p := beam.NewPipeline()
+s := p.Root()
+
+// PCollection of strings (bounded)
+lines := textio.Read(s, "input.txt")
+
+// PTransform: split into words
+words := beam.ParDo(s, extractWordsFn, lines)
+
+// PTransform: count occurrences
+counts := stats.Count(s, words)
+```
+</CodeGroup>
+
+This simple example demonstrates:
+- Creating a **Pipeline**
+- Reading data into a **PCollection**
+- Applying **PTransforms** to process data
+- The immutability of PCollections (each transform creates a new one)

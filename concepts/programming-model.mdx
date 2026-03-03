@@ -1,0 +1,506 @@
+---
+title: 'Programming Model'
+description: 'Learn the Apache Beam programming model and pipeline construction patterns'
+---
+
+The Beam programming model provides a structured approach to building data processing pipelines that work across batch and streaming data sources.
+
+## Pipeline Construction
+
+A Beam pipeline follows a clear pattern:
+
+1. **Create** a Pipeline object
+2. **Read** data from one or more sources into PCollections
+3. **Apply** transforms to process and transform PCollections
+4. **Write** results to one or more sinks
+5. **Run** the pipeline on a runner
+
+## Basic Pipeline Pattern
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.transforms.*;
+import org.apache.beam.sdk.values.PCollection;
+
+public class BasicPipeline {
+    public static void main(String[] args) {
+        // 1. Create pipeline options
+        PipelineOptions options = PipelineOptionsFactory.create();
+        
+        // 2. Create the pipeline
+        Pipeline p = Pipeline.create(options);
+        
+        // 3. Read data (creates a PCollection)
+        PCollection<String> lines = p.apply(
+            TextIO.read().from("gs://apache-beam-samples/shakespeare/kinglear.txt"));
+        
+        // 4. Transform data
+        PCollection<String> words = lines.apply(
+            FlatMapElements.into(TypeDescriptors.strings())
+                .via((String line) -> Arrays.asList(line.split("[^\\p{L}]+"))));
+        
+        // 5. Write results
+        words.apply(TextIO.write().to("output"));
+        
+        // 6. Run the pipeline
+        p.run().waitUntilFinish();
+    }
+}
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam.io import ReadFromText, WriteToText
+import re
+
+def run_pipeline():
+    # 1. Create pipeline with options
+    with beam.Pipeline() as p:
+        
+        # 2. Read data (creates a PCollection)
+        lines = p | 'Read' >> ReadFromText(
+            'gs://dataflow-samples/shakespeare/kinglear.txt')
+        
+        # 3. Transform data
+        words = (
+            lines 
+            | 'Split' >> beam.FlatMap(
+                lambda line: re.findall(r"[A-Za-z']+", line))
+        )
+        
+        # 4. Write results
+        words | 'Write' >> WriteToText('output')
+        
+        # Pipeline runs automatically at end of 'with' block
+
+if __name__ == '__main__':
+    run_pipeline()
+```
+
+```go Go
+package main
+
+import (
+    "context"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/io/textio"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/x/beamx"
+)
+
+func extractWords(line string, emit func(string)) {
+    words := strings.Fields(line)
+    for _, word := range words {
+        emit(word)
+    }
+}
+
+func main() {
+    beam.Init()
+    
+    // 1. Create the pipeline
+    p := beam.NewPipeline()
+    s := p.Root()
+    
+    // 2. Read data
+    lines := textio.Read(s, "gs://apache-beam-samples/shakespeare/kinglear.txt")
+    
+    // 3. Transform data
+    words := beam.ParDo(s, extractWords, lines)
+    
+    // 4. Write results
+    textio.Write(s, "output", words)
+    
+    // 5. Run the pipeline
+    if err := beamx.Run(context.Background(), p); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+</CodeGroup>
+
+## Pipeline Options
+
+Pipeline options configure how your pipeline executes. They specify:
+
+- Which runner to use (DirectRunner, DataflowRunner, FlinkRunner, etc.)
+- Runner-specific settings (project ID, staging location, etc.)
+- Custom application parameters
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.options.*;
+
+public interface MyOptions extends PipelineOptions {
+    @Description("Input file pattern")
+    @Default.String("gs://my-bucket/input/*.txt")
+    String getInputFile();
+    void setInputFile(String value);
+    
+    @Description("Output path")
+    @Validation.Required
+    String getOutputPath();
+    void setOutputPath(String value);
+}
+
+// Parse options from command line
+MyOptions options = PipelineOptionsFactory
+    .fromArgs(args)
+    .withValidation()
+    .as(MyOptions.class);
+
+Pipeline p = Pipeline.create(options);
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions
+
+class MyOptions(PipelineOptions):
+    @classmethod
+    def _add_argparse_args(cls, parser):
+        parser.add_argument(
+            '--input',
+            default='gs://my-bucket/input/*.txt',
+            help='Input file pattern')
+        parser.add_argument(
+            '--output',
+            required=True,
+            help='Output path')
+
+# Parse options
+options = MyOptions()
+
+with beam.Pipeline(options=options) as p:
+    # Use options.input and options.output
+    pass
+```
+
+```go Go
+import (
+    "flag"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+)
+
+var (
+    input = flag.String("input", 
+        "gs://my-bucket/input/*.txt", 
+        "Input file pattern")
+    output = flag.String("output", 
+        "", 
+        "Output path (required)")
+)
+
+func main() {
+    flag.Parse()
+    beam.Init()
+    
+    if *output == "" {
+        log.Fatal("--output is required")
+    }
+    
+    p := beam.NewPipeline()
+    // Use *input and *output
+}
+```
+</CodeGroup>
+
+## Transform Application Patterns
+
+### Chaining Transforms
+
+Transforms can be chained to create a processing pipeline:
+
+<CodeGroup>
+```java Java
+PCollection<String> results = input
+    .apply("Step1", ParDo.of(new TransformFn1()))
+    .apply("Step2", ParDo.of(new TransformFn2()))
+    .apply("Step3", Combine.globally(new CombineFn()));
+```
+
+```python Python
+results = (
+    input
+    | 'Step1' >> beam.ParDo(TransformFn1())
+    | 'Step2' >> beam.ParDo(TransformFn2())
+    | 'Step3' >> beam.CombineGlobally(CombineFn())
+)
+```
+
+```go Go
+results := beam.ParDo(s.Scope("Step1"), transformFn1, input)
+results = beam.ParDo(s.Scope("Step2"), transformFn2, results)
+results = beam.Combine(s.Scope("Step3"), combineFn, results)
+```
+</CodeGroup>
+
+### Branching Pipelines
+
+A single PCollection can be used as input to multiple transforms:
+
+<CodeGroup>
+```java Java
+PCollection<String> input = p.apply(TextIO.read().from("input.txt"));
+
+// Branch 1: Count words
+PCollection<KV<String, Long>> wordCounts = input
+    .apply("CountWords", new CountWords());
+
+// Branch 2: Find long lines  
+PCollection<String> longLines = input
+    .apply("FilterLongLines", Filter.by(line -> line.length() > 100));
+
+// Each branch processes independently
+wordCounts.apply("WriteCount", TextIO.write().to("counts"));
+longLines.apply("WriteLong", TextIO.write().to("long-lines"));
+```
+
+```python Python
+input_data = p | beam.io.ReadFromText('input.txt')
+
+# Branch 1: Count words
+word_counts = (
+    input_data 
+    | 'CountWords' >> CountWords()
+)
+
+# Branch 2: Find long lines
+long_lines = (
+    input_data
+    | 'FilterLongLines' >> beam.Filter(lambda line: len(line) > 100)
+)
+
+# Each branch processes independently
+word_counts | 'WriteCount' >> beam.io.WriteToText('counts')
+long_lines | 'WriteLong' >> beam.io.WriteToText('long-lines')
+```
+
+```go Go
+inputData := textio.Read(s, "input.txt")
+
+// Branch 1: Count words
+wordCounts := CountWords(s.Scope("CountWords"), inputData)
+
+// Branch 2: Find long lines
+longLines := beam.ParDo(s.Scope("FilterLongLines"), 
+    filterLongLinesFn, inputData)
+
+// Each branch processes independently
+textio.Write(s.Scope("WriteCount"), "counts", wordCounts)
+textio.Write(s.Scope("WriteLong"), "long-lines", longLines)
+```
+</CodeGroup>
+
+## Composite Transforms
+
+Create reusable transform components by combining multiple transforms:
+
+<CodeGroup>
+```java Java
+static class CountWords 
+    extends PTransform<PCollection<String>, PCollection<KV<String, Long>>> {
+    
+    @Override
+    public PCollection<KV<String, Long>> expand(PCollection<String> lines) {
+        return lines
+            .apply("ExtractWords", 
+                FlatMapElements.into(TypeDescriptors.strings())
+                    .via(line -> Arrays.asList(line.split("\\s+"))))
+            .apply("FilterEmpty", 
+                Filter.by(word -> !word.isEmpty()))
+            .apply("CountPerElement", 
+                Count.perElement());
+    }
+}
+
+// Usage
+PCollection<String> lines = ...;
+PCollection<KV<String, Long>> counts = lines.apply(new CountWords());
+```
+
+```python Python
+class CountWords(beam.PTransform):
+    def expand(self, lines):
+        return (
+            lines
+            | 'ExtractWords' >> beam.FlatMap(lambda line: line.split())
+            | 'FilterEmpty' >> beam.Filter(lambda word: word)
+            | 'CountPerElement' >> beam.combiners.Count.PerElement()
+        )
+
+# Usage
+lines = ...
+counts = lines | CountWords()
+```
+
+```go Go
+func CountWords(s beam.Scope, lines beam.PCollection) beam.PCollection {
+    s = s.Scope("CountWords")
+    
+    words := beam.ParDo(s.Scope("ExtractWords"), extractWordsFn, lines)
+    filtered := beam.ParDo(s.Scope("FilterEmpty"), filterEmptyFn, words)
+    return stats.Count(s.Scope("CountPerElement"), filtered)
+}
+
+// Usage
+lines := ...
+counts := CountWords(s, lines)
+```
+</CodeGroup>
+
+<Tip>
+Composite transforms improve code organization, enable reuse, and make pipelines easier to understand and maintain.
+</Tip>
+
+## Multiple Inputs and Outputs
+
+### Multiple Outputs (Tagged)
+
+<CodeGroup>
+```java Java
+// Define output tags
+final TupleTag<String> upperTag = new TupleTag<String>(){};
+final TupleTag<String> lowerTag = new TupleTag<String>(){};
+
+PCollectionTuple results = input.apply(
+    ParDo.of(new DoFn<String, String>() {
+        @ProcessElement
+        public void processElement(@Element String word, MultiOutputReceiver out) {
+            if (word.equals(word.toUpperCase())) {
+                out.get(upperTag).output(word);
+            } else {
+                out.get(lowerTag).output(word);
+            }
+        }
+    }).withOutputTags(upperTag, TupleTagList.of(lowerTag))
+);
+
+PCollection<String> upperWords = results.get(upperTag);
+PCollection<String> lowerWords = results.get(lowerTag);
+```
+
+```python Python
+class SplitWordsDoFn(beam.DoFn):
+    OUTPUT_TAG_UPPER = 'upper'
+    OUTPUT_TAG_LOWER = 'lower'
+    
+    def process(self, word):
+        if word.isupper():
+            yield beam.pvalue.TaggedOutput(self.OUTPUT_TAG_UPPER, word)
+        else:
+            yield beam.pvalue.TaggedOutput(self.OUTPUT_TAG_LOWER, word)
+
+results = input | beam.ParDo(SplitWordsDoFn()).with_outputs(
+    SplitWordsDoFn.OUTPUT_TAG_UPPER,
+    SplitWordsDoFn.OUTPUT_TAG_LOWER
+)
+
+upper_words = results[SplitWordsDoFn.OUTPUT_TAG_UPPER]
+lower_words = results[SplitWordsDoFn.OUTPUT_TAG_LOWER]
+```
+</CodeGroup>
+
+### Merging Multiple Inputs
+
+<CodeGroup>
+```java Java
+PCollection<String> pc1 = ...;
+PCollection<String> pc2 = ...;
+PCollection<String> pc3 = ...;
+
+// Flatten multiple PCollections
+PCollection<String> merged = PCollectionList
+    .of(pc1).and(pc2).and(pc3)
+    .apply(Flatten.pCollections());
+```
+
+```python Python
+pc1 = ...
+pc2 = ...
+pc3 = ...
+
+# Flatten multiple PCollections
+merged = (pc1, pc2, pc3) | beam.Flatten()
+```
+
+```go Go
+pc1 := ...
+pc2 := ...
+pc3 := ...
+
+// Flatten multiple PCollections
+merged := beam.Flatten(s, pc1, pc2, pc3)
+```
+</CodeGroup>
+
+## Best Practices
+
+<Note>
+**Naming transforms**: Always provide meaningful names to transforms. This helps with monitoring, debugging, and understanding the pipeline structure.
+</Note>
+
+<Warning>
+**Avoid side effects**: PTransforms should be deterministic and avoid side effects. The same input should always produce the same output, regardless of how many times the transform is executed.
+</Warning>
+
+<Tip>
+**Start simple**: Begin with a minimal pipeline and add complexity gradually. Test each transform independently before combining them.
+</Tip>
+
+## Testing Pipelines
+
+Beam provides testing utilities to validate pipeline logic:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.testing.PAssert;
+import org.apache.beam.sdk.testing.TestPipeline;
+
+@Rule
+public final transient TestPipeline p = TestPipeline.create();
+
+@Test
+public void testPipeline() {
+    PCollection<String> input = p.apply(Create.of("hello", "world"));
+    PCollection<Integer> lengths = input.apply(
+        MapElements.into(TypeDescriptors.integers())
+            .via(String::length));
+    
+    PAssert.that(lengths).containsInAnyOrder(5, 5);
+    p.run();
+}
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam.testing.test_pipeline import TestPipeline
+from apache_beam.testing.util import assert_that, equal_to
+
+with TestPipeline() as p:
+    input_data = p | beam.Create(['hello', 'world'])
+    lengths = input_data | beam.Map(len)
+    
+    assert_that(lengths, equal_to([5, 5]))
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Pipelines" icon="diagram-project" href="/concepts/pipelines">
+    Deep dive into Pipeline creation and configuration
+  </Card>
+  <Card title="PCollections" icon="database" href="/concepts/pcollections">
+    Learn about working with distributed data
+  </Card>
+  <Card title="Transforms" icon="arrows-turn-right" href="/concepts/transforms">
+    Explore the full range of available transforms
+  </Card>
+  <Card title="Windowing" icon="window-restore" href="/concepts/windowing">
+    Handle unbounded data with windows
+  </Card>
+</CardGroup>

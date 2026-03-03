@@ -1,0 +1,686 @@
+---
+title: PrismRunner
+description: Modern portable local runner for fast development and testing
+---
+
+The PrismRunner is a local portable runner authored in Go that executes Beam pipelines on your machine. It's designed for fast startup, comprehensive testing, and excellent debugging support.
+
+## Overview
+
+PrismRunner provides:
+- **Fast Startup**: Quick pipeline execution for rapid development
+- **Portable**: Uses the Beam FnAPI to work with all SDKs
+- **Local Execution**: Runs on your machine for easy debugging
+- **Testing Focused**: Enforces correctness to catch bugs early
+- **Modern Architecture**: Built with Go's concurrency model
+
+## When to Use PrismRunner
+
+<CardGroup cols={2}>
+  <Card title="Best For" icon="check">
+    - Local development
+    - Fast iteration cycles
+    - Testing pipelines
+    - Debugging workflows
+    - Cross-language pipelines
+    - CI/CD testing
+  </Card>
+  
+  <Card title="Not Suitable For" icon="xmark">
+    - Production workloads
+    - Large datasets
+    - Distributed processing
+    - Long-running jobs
+    - High-throughput streaming
+  </Card>
+</CardGroup>
+
+<Info>
+  PrismRunner is designed to eventually replace the DirectRunner for Go SDK users and provide better local testing for all SDKs.
+</Info>
+
+## Setup and Configuration
+
+### Installation
+
+PrismRunner is automatically downloaded when needed by the Beam SDK:
+
+<Tabs>
+  <Tab title="Java">
+    Add the Prism runner dependency:
+    
+    ```xml
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-runners-prism-java</artifactId>
+      <version>{beam-version}</version>
+    </dependency>
+    ```
+    
+    For Gradle:
+    ```gradle
+    implementation 'org.apache.beam:beam-runners-prism-java:{beam-version}'
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    Install Beam with Prism support:
+    ```bash
+    pip install apache-beam
+    ```
+    
+    Prism binary is automatically managed by the SDK.
+  </Tab>
+  
+  <Tab title="Go">
+    Import the Prism runner:
+    ```go
+    import "github.com/apache/beam/sdks/v2/go/pkg/beam/runners/prism"
+    ```
+    
+    Or install the Prism binary directly:
+    ```bash
+    go install github.com/apache/beam/sdks/v2/go/cmd/prism@latest
+    ```
+  </Tab>
+</Tabs>
+
+### Manual Installation
+
+You can also install Prism manually:
+
+```bash
+# Download from GitHub releases
+wget https://github.com/apache/beam/releases/download/v{version}/prism-{os}-{arch}.zip
+unzip prism-{os}-{arch}.zip
+
+# Or build from source
+git clone https://github.com/apache/beam.git
+cd beam/sdks/go/cmd/prism
+go build
+```
+
+## Running a Pipeline
+
+### Basic Usage
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+    import org.apache.beam.runners.prism.PrismRunner;
+    import org.apache.beam.runners.prism.PrismPipelineOptions;
+    import org.apache.beam.sdk.Pipeline;
+    import org.apache.beam.sdk.options.PipelineOptionsFactory;
+    
+    public class MyPrismPipeline {
+      public static void main(String[] args) {
+        PrismPipelineOptions options = 
+            PipelineOptionsFactory.fromArgs(args)
+                .withValidation()
+                .as(PrismPipelineOptions.class);
+        
+        // Set the runner
+        options.setRunner(PrismRunner.class);
+        
+        Pipeline p = Pipeline.create(options);
+        
+        // Build your pipeline
+        p.apply(/* your transforms */);
+        
+        // Execute with Prism
+        p.run().waitUntilFinish();
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+    import apache_beam as beam
+    from apache_beam.options.pipeline_options import PipelineOptions
+    
+    def run():
+        options = PipelineOptions([
+            '--runner=PrismRunner',
+        ])
+        
+        with beam.Pipeline(options=options) as p:
+            # Build your pipeline
+            (p 
+             | beam.Create(['Hello', 'Prism'])
+             | beam.Map(lambda x: x.upper())
+             | beam.Map(print))
+    
+    if __name__ == '__main__':
+        run()
+    ```
+  </Tab>
+  
+  <Tab title="Go">
+    ```go
+    package main
+    
+    import (
+        "context"
+        
+        "github.com/apache/beam/sdks/v2/go/pkg/beam"
+        "github.com/apache/beam/sdks/v2/go/pkg/beam/runners/prism"
+    )
+    
+    func main() {
+        beam.Init()
+        
+        p := beam.NewPipeline()
+        s := p.Root()
+        
+        // Build your pipeline
+        data := beam.Create(s, "Hello", "Prism")
+        // ... more transforms
+        
+        if err := prism.Execute(context.Background(), p); err != nil {
+            panic(err)
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Command Line
+
+Run with PrismRunner from the command line:
+
+```bash
+# Java
+mvn compile exec:java -Dexec.mainClass=com.example.MyPipeline \
+  -Dexec.args="--runner=PrismRunner"
+
+# Python
+python my_pipeline.py --runner=PrismRunner
+
+# Go
+go run my_pipeline.go --runner=prism
+```
+
+## PrismPipelineOptions
+
+Configure PrismRunner with these options:
+
+### Core Options
+
+<ParamField path="prismLocation" type="string">
+  Path or URL to the Prism binary. If not set, the SDK will auto-download it.
+  
+  ```java
+  options.setPrismLocation("/path/to/prism");
+  ```
+  
+  Can be:
+  - Local file path: `/usr/local/bin/prism`
+  - URL to binary: `https://example.com/prism`
+  - GitHub release URL: Auto-constructs download URL
+</ParamField>
+
+<ParamField path="prismVersionOverride" type="string">
+  Override the SDK version for downloading Prism from GitHub releases.
+  
+  ```java
+  options.setPrismVersionOverride("2.50.0");
+  ```
+</ParamField>
+
+<ParamField path="enableWebUI" type="boolean" default="true">
+  Enable the Prism Web UI for monitoring.
+  
+  ```java
+  options.setEnableWebUI(true);
+  ```
+  
+  Access at `http://localhost:8080` when enabled.
+</ParamField>
+
+<ParamField path="idleShutdownTimeout" type="string" default="5m">
+  Duration Prism waits for a new job before shutting down. Negative durations disable auto-shutdown.
+  
+  ```java
+  options.setIdleShutdownTimeout("10m");
+  ```
+  
+  Valid time units: `ns`, `us`, `ms`, `s`, `m`, `h`
+</ParamField>
+
+<ParamField path="prismLogLevel" type="string" default="warn">
+  Log level for Prism: `debug`, `info`, `warn`, or `error`.
+  
+  ```java
+  options.setPrismLogLevel("info");
+  ```
+</ParamField>
+
+## Features and Capabilities
+
+### Supported Transforms
+
+- ✅ **ParDo**: All DoFn features
+- ✅ **GroupByKey**: Including session windows
+- ✅ **CoGroupByKey**: Multi-input grouping
+- ✅ **Combine**: Lifted and unlifted
+- ✅ **Flatten**: Multiple PCollections
+- ✅ **Side Inputs**: All side input patterns
+- ✅ **Windowing**: Fixed, sliding, session, global
+
+### Windowing Support
+
+```java
+import org.apache.beam.sdk.transforms.windowing.*;
+
+pipeline
+    .apply(/* source */)
+    .apply(Window.<String>into(
+        FixedWindows.of(Duration.standardMinutes(1))))
+    .apply(/* transforms */);
+```
+
+Supported window types:
+- Global windows
+- Fixed windows
+- Sliding windows
+- Session windows
+
+### State and Timers
+
+<Warning>
+  State and timers support is limited in the current version of PrismRunner.
+</Warning>
+
+### Splittable DoFn
+
+PrismRunner expands Splittable DoFns:
+
+```java
+public class MySplittableDoFn extends DoFn<String, String> {
+  @ProcessElement
+  public void processElement(
+      @Element String element,
+      RestrictionTracker<OffsetRange, Long> tracker,
+      OutputReceiver<String> out) {
+    // Splittable processing
+  }
+  
+  @GetInitialRestriction
+  public OffsetRange getInitialRestriction(@Element String element) {
+    return new OffsetRange(0, element.length());
+  }
+}
+```
+
+## Web UI
+
+PrismRunner includes a built-in web UI for monitoring:
+
+### Accessing the UI
+
+When `enableWebUI` is true:
+1. Start your pipeline with PrismRunner
+2. Open `http://localhost:8080` in your browser
+3. View job progress, metrics, and logs
+
+### Features
+- Job status and progress
+- Transform graph visualization
+- Metrics and counters
+- Error messages and logs
+- Watermark tracking
+
+<Info>
+  The Web UI is particularly useful for debugging complex pipelines and understanding execution flow.
+</Info>
+
+## Testing with PrismRunner
+
+PrismRunner is excellent for testing:
+
+### Unit Tests
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+    import org.apache.beam.sdk.testing.TestPipeline;
+    import org.apache.beam.sdk.testing.PAssert;
+    import org.junit.Rule;
+    import org.junit.Test;
+    
+    public class MyPipelineTest {
+      @Rule
+      public final transient TestPipeline pipeline = 
+          TestPipeline.fromOptions(
+              PipelineOptionsFactory.create()
+                  .as(PrismPipelineOptions.class));
+      
+      @Test
+      public void testWithPrism() {
+        PrismPipelineOptions options = 
+            pipeline.getOptions().as(PrismPipelineOptions.class);
+        options.setRunner(PrismRunner.class);
+        
+        PCollection<String> output = pipeline
+            .apply(Create.of("Hello", "World"))
+            .apply(MapElements.into(TypeDescriptors.strings())
+                .via(String::toUpperCase));
+        
+        PAssert.that(output).containsInAnyOrder("HELLO", "WORLD");
+        
+        pipeline.run();
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+    import unittest
+    import apache_beam as beam
+    from apache_beam.testing.test_pipeline import TestPipeline
+    from apache_beam.testing.util import assert_that, equal_to
+    from apache_beam.options.pipeline_options import PipelineOptions
+    
+    class MyPipelineTest(unittest.TestCase):
+        def test_with_prism(self):
+            options = PipelineOptions([
+                '--runner=PrismRunner',
+            ])
+            
+            with TestPipeline(options=options) as p:
+                output = (
+                    p 
+                    | beam.Create(['Hello', 'World'])
+                    | beam.Map(str.upper)
+                )
+                
+                assert_that(output, equal_to(['HELLO', 'WORLD']))
+    ```
+  </Tab>
+  
+  <Tab title="Go">
+    ```go
+    package main
+    
+    import (
+        "context"
+        "testing"
+        
+        "github.com/apache/beam/sdks/v2/go/pkg/beam"
+        "github.com/apache/beam/sdks/v2/go/pkg/beam/runners/prism"
+        "github.com/apache/beam/sdks/v2/go/pkg/beam/testing/passert"
+    )
+    
+    func TestPipeline(t *testing.T) {
+        p, s := beam.NewPipelineWithRoot()
+        
+        input := beam.Create(s, "Hello", "World")
+        output := /* transforms */
+        
+        passert.Equals(s, output, "HELLO", "WORLD")
+        
+        if err := prism.Execute(context.Background(), p); err != nil {
+            t.Fatalf("Pipeline failed: %v", err)
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Integration Tests
+
+PrismRunner is ideal for CI/CD integration tests:
+
+```yaml
+# GitHub Actions example
+name: Test Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Set up Java
+        uses: actions/setup-java@v2
+        with:
+          java-version: '11'
+      
+      - name: Run tests with Prism
+        run: |
+          mvn test -Dtest=MyPipelineTest \
+            -Drunner=PrismRunner
+```
+
+## Debugging
+
+PrismRunner provides excellent debugging support:
+
+### Local Debugging
+
+Since Prism runs locally, you can:
+- Set breakpoints in your DoFns
+- Use your IDE's debugger
+- Inspect variables in real-time
+- Step through pipeline execution
+
+### Logging
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+    import org.slf4j.Logger;
+    import org.slf4j.LoggerFactory;
+    
+    public class MyDoFn extends DoFn<String, String> {
+      private static final Logger LOG = LoggerFactory.getLogger(MyDoFn.class);
+      
+      @ProcessElement
+      public void processElement(ProcessContext c) {
+        LOG.info("Processing: {}", c.element());
+        c.output(c.element());
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+    import logging
+    
+    class MyDoFn(beam.DoFn):
+        def process(self, element):
+            logging.info(f'Processing: {element}')
+            yield element.upper()
+    ```
+  </Tab>
+  
+  <Tab title="Go">
+    ```go
+    import "github.com/apache/beam/sdks/v2/go/pkg/beam/log"
+    
+    func processElement(ctx context.Context, element string) string {
+        log.Infof(ctx, "Processing: %s", element)
+        return element
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Prism Logs
+
+Control Prism's own logging:
+
+```java
+PrismPipelineOptions options = 
+    PipelineOptionsFactory.as(PrismPipelineOptions.class);
+
+// Set to debug for detailed Prism internals
+options.setPrismLogLevel("debug");
+```
+
+## Portable Architecture
+
+PrismRunner uses Beam's portable architecture:
+
+### How It Works
+
+1. **Pipeline Translation**: SDK translates pipeline to portable proto
+2. **Job Submission**: Prism receives the job via FnAPI
+3. **SDK Harness**: Prism launches SDK-specific workers
+4. **Execution**: Prism coordinates execution across workers
+5. **Results**: Results are returned to the client
+
+### Cross-Language Support
+
+PrismRunner supports cross-language pipelines:
+
+```java
+// Java pipeline using Python transform
+pipeline
+    .apply(Create.of("data"))
+    .apply("PythonTransform", 
+        PythonExternalTransform.from("my_transform"))
+    .apply(/* more Java transforms */);
+```
+
+## Performance Considerations
+
+PrismRunner is optimized for development, not production:
+
+- **Memory**: All data processed in memory
+- **Single Machine**: No distributed execution
+- **Fast Startup**: Quick iteration for development
+- **Testing Focus**: Prioritizes correctness over speed
+
+<Warning>
+  For production workloads or large datasets, use [DataflowRunner](/runners/dataflow), [FlinkRunner](/runners/flink), or [SparkRunner](/runners/spark).
+</Warning>
+
+## Comparison with DirectRunner
+
+| Feature | PrismRunner | DirectRunner |
+|---------|-------------|---------------|
+| **Architecture** | Portable/FnAPI | SDK-specific |
+| **Languages** | All SDKs | Per-SDK |
+| **Startup Time** | Fast | Fast |
+| **Cross-language** | Yes | No |
+| **Web UI** | Yes | No |
+| **State** | Limited | Full |
+| **Maturity** | Newer | Mature |
+
+## Current Limitations
+
+<Warning>
+  PrismRunner is under active development. Some limitations:
+</Warning>
+
+- **Testing Use Only**: Not for production workloads
+- **In-Memory Only**: Not suitable for large jobs
+- **Limited State**: State and timers support is incomplete
+- **Single Machine**: No distributed execution
+- **Feature Coverage**: Some Beam features not yet implemented
+
+See the [Prism README](https://github.com/apache/beam/tree/master/sdks/go/pkg/beam/runners/prism) for current status.
+
+## Future Roadmap
+
+Upcoming features:
+- Complete state and timers support
+- Triggers and complex windowing
+- Test Stream support
+- Container execution for cross-language
+- Better streaming support
+- Performance optimizations
+
+## Best Practices
+
+### Development Workflow
+
+1. **Start with PrismRunner** for development
+   ```bash
+   python my_pipeline.py --runner=PrismRunner
+   ```
+
+2. **Test with DirectRunner** for comprehensive validation
+   ```bash
+   python my_pipeline.py --runner=DirectRunner
+   ```
+
+3. **Deploy with production runner**
+   ```bash
+   python my_pipeline.py --runner=DataflowRunner \
+     --project=my-project \
+     --region=us-central1
+   ```
+
+### Testing Strategy
+
+- Use PrismRunner for fast unit tests
+- Use DirectRunner for thorough validation tests
+- Use production runner for integration tests
+
+### CI/CD Integration
+
+```yaml
+# Use PrismRunner for fast CI tests
+- name: Fast Tests
+  run: mvn test -Drunner=PrismRunner
+
+# Use DirectRunner for thorough validation
+- name: Validation Tests
+  run: mvn verify -Drunner=DirectRunner
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Prism binary not found">
+    The SDK will auto-download Prism. If this fails:
+    - Check internet connectivity
+    - Manually download from GitHub releases
+    - Set `--prismLocation` to local binary
+  </Accordion>
+  
+  <Accordion title="Web UI not accessible">
+    - Ensure `--enableWebUI=true`
+    - Check port 8080 is not in use
+    - Verify firewall settings
+  </Accordion>
+  
+  <Accordion title="Pipeline fails with 'feature not implemented'">
+    - Check Prism's current feature support
+    - Consider using DirectRunner instead
+    - Report the issue on GitHub
+  </Accordion>
+  
+  <Accordion title="Slow execution">
+    - Reduce data size for local testing
+    - Check for inefficient transforms
+    - Consider using a distributed runner for large data
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Prism GitHub" icon="github" href="https://github.com/apache/beam/tree/master/sdks/go/pkg/beam/runners/prism">
+    View source and contribute
+  </Card>
+  
+  <Card title="DirectRunner" icon="laptop" href="/runners/direct">
+    Alternative local runner
+  </Card>
+  
+  <Card title="Testing Guide" icon="flask">
+    Learn more about testing
+  </Card>
+  
+  <Card title="Cross-Language" icon="language">
+    Build multi-language pipelines
+  </Card>
+</CardGroup>

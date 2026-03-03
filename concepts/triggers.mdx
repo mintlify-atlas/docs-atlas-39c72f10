@@ -1,0 +1,595 @@
+---
+title: 'Triggers'
+description: 'Control when and how results are emitted from windows'
+---
+
+Triggers determine when Beam emits results for a window. They control the balance between latency (how quickly you get results) and completeness (how much data is included).
+
+## What are Triggers?
+
+Triggers answer the question: "When should we emit results for this window?"
+
+From the Apache Beam examples:
+
+<CodeGroup>
+```java Java (TriggerExample.java:57-76)
+/**
+ * This example illustrates the basic concepts behind triggering. It shows how to use 
+ * different trigger definitions to produce partial (speculative) results before all 
+ * the data is processed and to control when updated results are produced for late data.
+ *
+ * Concepts:
+ * 1. The default triggering behavior
+ * 2. Late data with the default trigger
+ * 3. How to get speculative estimates
+ * 4. Combining late data and speculative estimates
+ */
+```
+</CodeGroup>
+
+## Why Triggers?
+
+Triggers enable you to:
+
+- **Get early results** before all data arrives (speculative results)
+- **Handle late data** that arrives after the window closes
+- **Balance latency and accuracy** based on your requirements
+- **Refine results** as more data becomes available
+
+<Info>
+Without triggers, windows only emit results once when the watermark passes the end of the window. Triggers give you fine-grained control over this timing.
+</Info>
+
+## Default Trigger Behavior
+
+By default, Beam uses the following trigger:
+
+```java
+AfterWatermark.pastEndOfWindow()
+```
+
+This means:
+- Results are emitted **once** when the watermark passes the end of the window
+- Late data is **discarded** (unless you configure allowed lateness)
+- No early (speculative) results
+
+<CodeGroup>
+```java Java
+// Default trigger (implicit)
+PCollection<String> windowed = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5))));
+// Emits results once per window when watermark passes
+
+// Equivalent explicit form
+PCollection<String> windowed = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .triggering(AfterWatermark.pastEndOfWindow())
+        .discardingFiredPanes());
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+from apache_beam.transforms.trigger import AfterWatermark, AccumulationMode
+
+# Default trigger (implicit)
+windowed = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60))
+
+# Equivalent explicit form
+windowed = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60),
+    trigger=AfterWatermark(),
+    accumulation_mode=AccumulationMode.DISCARDING)
+```
+</CodeGroup>
+
+## Built-in Trigger Types
+
+### Event Time Triggers
+
+Fire based on the watermark (event time progress):
+
+#### AfterWatermark
+
+Fire when the watermark passes the end of the window:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.AfterWatermark;
+import org.apache.beam.sdk.transforms.windowing.Window;
+
+PCollection<String> results = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .triggering(AfterWatermark.pastEndOfWindow())
+        .discardingFiredPanes());
+```
+
+```python Python
+from apache_beam.transforms.trigger import AfterWatermark
+
+results = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60),
+    trigger=AfterWatermark())
+```
+</CodeGroup>
+
+### Processing Time Triggers
+
+Fire based on processing time (wall clock time):
+
+#### AfterProcessingTime
+
+Fire after a certain amount of processing time has elapsed:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.AfterProcessingTime;
+import org.apache.beam.sdk.transforms.windowing.Repeatedly;
+
+// Fire every minute of processing time
+PCollection<String> results = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .triggering(
+            Repeatedly.forever(
+                AfterProcessingTime.pastFirstElementInPane()
+                    .plusDelayOf(Duration.standardMinutes(1))))
+        .discardingFiredPanes());
+```
+
+```python Python
+from apache_beam.transforms.trigger import AfterProcessingTime, Repeatedly
+
+# Fire every minute of processing time
+results = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60),
+    trigger=Repeatedly(
+        AfterProcessingTime(60))  # 60 seconds
+    )
+```
+</CodeGroup>
+
+### Count-based Triggers
+
+Fire after a certain number of elements:
+
+#### AfterCount
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.AfterPane;
+
+// Fire after every 100 elements
+PCollection<String> results = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .triggering(
+            Repeatedly.forever(
+                AfterPane.elementCountAtLeast(100)))
+        .discardingFiredPanes());
+```
+
+```python Python
+from apache_beam.transforms.trigger import AfterCount, Repeatedly
+
+# Fire after every 100 elements
+results = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60),
+    trigger=Repeatedly(AfterCount(100)))
+```
+</CodeGroup>
+
+### Composite Triggers
+
+Combine multiple triggers with logical operations:
+
+#### AfterEach (Sequence)
+
+Fire triggers in sequence:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.AfterEach;
+
+// Fire after 100 elements, then after watermark
+PCollection<String> results = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .triggering(
+            AfterEach.inOrder(
+                AfterPane.elementCountAtLeast(100),
+                AfterWatermark.pastEndOfWindow()))
+        .discardingFiredPanes());
+```
+
+```python Python
+from apache_beam.transforms.trigger import AfterEach, AfterCount, AfterWatermark
+
+# Fire after 100 elements, then after watermark
+results = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60),
+    trigger=AfterEach(
+        AfterCount(100),
+        AfterWatermark()))
+```
+</CodeGroup>
+
+#### AfterAll
+
+Fire when all sub-triggers have fired:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.AfterAll;
+
+// Fire when BOTH conditions are met
+PCollection<String> results = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .triggering(
+            AfterAll.of(
+                AfterPane.elementCountAtLeast(100),
+                AfterProcessingTime.pastFirstElementInPane()
+                    .plusDelayOf(Duration.standardMinutes(1))))
+        .discardingFiredPanes());
+```
+
+```python Python
+from apache_beam.transforms.trigger import AfterAll, AfterCount, AfterProcessingTime
+
+# Fire when BOTH conditions are met
+results = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60),
+    trigger=AfterAll(
+        AfterCount(100),
+        AfterProcessingTime(60)))
+```
+</CodeGroup>
+
+#### AfterAny
+
+Fire when any sub-trigger fires:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.transforms.windowing.AfterFirst;
+
+// Fire when EITHER condition is met
+PCollection<String> results = input.apply(
+    Window.<String>into(FixedWindows.of(Duration.standardMinutes(5)))
+        .triggering(
+            AfterFirst.of(
+                AfterPane.elementCountAtLeast(1000),
+                AfterProcessingTime.pastFirstElementInPane()
+                    .plusDelayOf(Duration.standardMinutes(1))))
+        .discardingFiredPanes());
+```
+
+```python Python
+from apache_beam.transforms.trigger import AfterAny, AfterCount, AfterProcessingTime
+
+# Fire when EITHER condition is met
+results = input_data | beam.WindowInto(
+    window.FixedWindows(5 * 60),
+    trigger=AfterAny(
+        AfterCount(1000),
+        AfterProcessingTime(60)))
+```
+</CodeGroup>
+
+## Early and Late Firings
+
+The most common pattern combines early (speculative) results with on-time and late results:
+
+<CodeGroup>
+```java Java (TriggerExample.java:190-250)
+import org.apache.beam.sdk.transforms.windowing.*;
+
+// Early results every minute, final result at watermark, late data every 5 minutes
+PCollection<KV<String, Integer>> results = input.apply(
+    Window.<KV<String, Integer>>into(
+            FixedWindows.of(Duration.standardMinutes(30)))
+        .triggering(
+            AfterWatermark.pastEndOfWindow()
+                // Speculative early results
+                .withEarlyFirings(
+                    AfterProcessingTime.pastFirstElementInPane()
+                        .plusDelayOf(Duration.standardMinutes(1)))
+                // Handle late data
+                .withLateFirings(
+                    AfterProcessingTime.pastFirstElementInPane()
+                        .plusDelayOf(Duration.standardMinutes(5))))
+        .withAllowedLateness(Duration.standardDays(1))
+        .accumulatingFiredPanes());
+```
+
+```python Python
+from apache_beam.transforms import trigger
+from apache_beam import window
+
+# Early results every minute, final result at watermark, late data every 5 minutes
+results = input_data | beam.WindowInto(
+    window.FixedWindows(30 * 60),
+    trigger=trigger.AfterWatermark(
+        # Speculative early results
+        early=trigger.AfterProcessingTime(60),
+        # Handle late data
+        late=trigger.AfterProcessingTime(5 * 60)
+    ),
+    allowed_lateness=24 * 60 * 60,  # 1 day
+    accumulation_mode=trigger.AccumulationMode.ACCUMULATING
+)
+```
+</CodeGroup>
+
+This trigger:
+1. **Early**: Fires every minute with partial results
+2. **On-time**: Fires when watermark passes end of window
+3. **Late**: Fires every 5 minutes for late-arriving data
+
+## Accumulation Modes
+
+Control how results accumulate across trigger firings:
+
+### Discarding Mode
+
+Each pane contains only new data since the last firing:
+
+```java
+.discardingFiredPanes()
+```
+
+```
+Window [0:00-0:05]
+  Firing 1 (early):    elements [A, B, C]      → output: [A, B, C]
+  Firing 2 (on-time):  elements [D, E]         → output: [D, E]
+  Firing 3 (late):     elements [F]            → output: [F]
+```
+
+<Tip>
+Use discarding mode when you want to avoid duplicate processing and can handle incremental updates.
+</Tip>
+
+### Accumulating Mode
+
+Each pane contains all data seen so far:
+
+```java
+.accumulatingFiredPanes()
+```
+
+```
+Window [0:00-0:05]
+  Firing 1 (early):    elements [A, B, C]      → output: [A, B, C]
+  Firing 2 (on-time):  elements [D, E]         → output: [A, B, C, D, E]
+  Firing 3 (late):     elements [F]            → output: [A, B, C, D, E, F]
+```
+
+<Tip>
+Use accumulating mode when downstream systems expect complete results and can handle retractions/updates.
+</Tip>
+
+## Complete Example: Real-time Dashboard
+
+From the Apache Beam examples:
+
+<CodeGroup>
+```java Java
+public class RealtimeDashboard {
+    
+    public static void main(String[] args) {
+        Pipeline p = Pipeline.create(options);
+        
+        PCollection<KV<String, Integer>> scores = p
+            .apply("ReadScores", 
+                PubsubIO.readStrings().fromTopic("game-scores"))
+            .apply("ParseScores", 
+                ParDo.of(new ParseEventFn()));
+        
+        // Get early updates every 30 seconds, final at watermark
+        PCollection<KV<String, Integer>> teamScores = scores.apply(
+            Window.<KV<String, Integer>>into(
+                    FixedWindows.of(Duration.standardMinutes(5)))
+                .triggering(
+                    AfterWatermark.pastEndOfWindow()
+                        .withEarlyFirings(
+                            AfterProcessingTime.pastFirstElementInPane()
+                                .plusDelayOf(Duration.standardSeconds(30))))
+                .withAllowedLateness(Duration.standardMinutes(10))
+                .accumulatingFiredPanes())
+            .apply("SumScores", Sum.integersPerKey());
+        
+        // Write to dashboard
+        teamScores
+            .apply("FormatResults", ParDo.of(new FormatFn()))
+            .apply("WriteToDashboard", 
+                PubsubIO.writeStrings().to("dashboard-updates"));
+        
+        p.run();
+    }
+}
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam import window
+from apache_beam.transforms import trigger
+
+class ParseEventFn(beam.DoFn):
+    def process(self, element):
+        data = json.loads(element)
+        yield (data['team'], data['score'])
+
+class FormatResultFn(beam.DoFn):
+    def process(self, element, window=beam.DoFn.WindowParam,
+                pane_info=beam.DoFn.PaneInfoParam):
+        team, score = element
+        yield {
+            'team': team,
+            'score': score,
+            'window_start': window.start.isoformat(),
+            'is_early': pane_info.is_first,
+            'is_final': pane_info.is_last
+        }
+
+with beam.Pipeline() as p:
+    scores = (
+        p 
+        | 'ReadScores' >> beam.io.ReadFromPubSub(topic='game-scores')
+        | 'ParseScores' >> beam.ParDo(ParseEventFn())
+    )
+    
+    # Get early updates every 30 seconds, final at watermark
+    team_scores = (
+        scores
+        | 'WindowAndTrigger' >> beam.WindowInto(
+            window.FixedWindows(5 * 60),
+            trigger=trigger.AfterWatermark(
+                early=trigger.AfterProcessingTime(30),
+                late=trigger.AfterCount(1)
+            ),
+            allowed_lateness=10 * 60,
+            accumulation_mode=trigger.AccumulationMode.ACCUMULATING
+        )
+        | 'SumScores' >> beam.CombinePerKey(sum)
+        | 'FormatResults' >> beam.ParDo(FormatResultFn())
+        | 'WriteToDashboard' >> beam.io.WriteToPubSub(topic='dashboard-updates')
+    )
+```
+</CodeGroup>
+
+This example:
+- **Early firings**: Updates dashboard every 30 seconds with partial results
+- **On-time firing**: Emits final result when window closes
+- **Late firings**: Updates if late data arrives (within 10-minute lateness)
+- **Accumulating**: Each update contains complete results so far
+
+## Pane Information
+
+Access metadata about trigger firings:
+
+<CodeGroup>
+```java Java
+class ProcessPaneFn extends DoFn<KV<String, Integer>, String> {
+    @ProcessElement
+    public void processElement(
+            @Element KV<String, Integer> element,
+            BoundedWindow window,
+            PaneInfo pane,
+            OutputReceiver<String> out) {
+        
+        String timing = pane.getTiming().toString(); // EARLY, ON_TIME, LATE
+        boolean isFirst = pane.isFirst();
+        boolean isLast = pane.isLast();
+        long index = pane.getIndex();
+        
+        String result = String.format(
+            "Key: %s, Value: %d, Timing: %s, IsFirst: %s, IsLast: %s",
+            element.getKey(), element.getValue(), timing, isFirst, isLast);
+        
+        out.output(result);
+    }
+}
+```
+
+```python Python
+class ProcessPaneFn(beam.DoFn):
+    def process(self, element, pane_info=beam.DoFn.PaneInfoParam):
+        key, value = element
+        
+        timing = pane_info.timing  # EARLY, ON_TIME, LATE
+        is_first = pane_info.is_first
+        is_last = pane_info.is_last
+        index = pane_info.index
+        
+        result = {
+            'key': key,
+            'value': value,
+            'timing': str(timing),
+            'is_first': is_first,
+            'is_last': is_last,
+            'index': index
+        }
+        
+        yield result
+```
+</CodeGroup>
+
+## Best Practices
+
+<Note>
+**Start simple**: Begin with the default trigger. Add complexity only when you need early results or late data handling.
+</Note>
+
+<Warning>
+**Cost vs. Latency**: More frequent firings mean lower latency but higher processing costs. Balance based on your requirements.
+</Warning>
+
+<Tip>
+**Monitor pane counts**: High pane counts may indicate issues with your trigger configuration or data arrival patterns.
+</Tip>
+
+### Common Patterns
+
+1. **Real-time dashboard**: Early firings every 30-60 seconds
+2. **Hourly reports**: Watermark trigger with 1-hour allowed lateness
+3. **Session analysis**: Default trigger with session windows
+4. **High-throughput counting**: Process every N elements or M seconds
+5. **Critical updates**: Watermark trigger with minimal latency tolerance
+
+## When to Use Which Trigger
+
+| Use Case | Recommended Trigger |
+|----------|--------------------|
+| Batch processing | Default (AfterWatermark) |
+| Real-time dashboard | AfterWatermark with early firings |
+| Low-latency alerts | AfterProcessingTime |
+| Exactly-once processing | Default with no early/late firings |
+| Approximate results OK | Frequent AfterProcessingTime |
+| Late data important | AfterWatermark with late firings |
+
+## Debugging Triggers
+
+Log pane information to understand trigger behavior:
+
+<CodeGroup>
+```java Java
+class LogPaneInfoFn<T> extends DoFn<T, T> {
+    private static final Logger LOG = LoggerFactory.getLogger(LogPaneInfoFn.class);
+    
+    @ProcessElement
+    public void processElement(
+            @Element T element,
+            BoundedWindow window,
+            PaneInfo pane,
+            OutputReceiver<T> out) {
+        
+        LOG.info("Element: {}, Window: {}, Pane: {}, Timing: {}",
+            element, window, pane.getIndex(), pane.getTiming());
+        
+        out.output(element);
+    }
+}
+```
+
+```python Python
+import logging
+
+class LogPaneInfoFn(beam.DoFn):
+    def process(self, element, 
+                window=beam.DoFn.WindowParam,
+                pane_info=beam.DoFn.PaneInfoParam):
+        logging.info(
+            f"Element: {element}, Window: {window}, "
+            f"Pane: {pane_info.index}, Timing: {pane_info.timing}")
+        yield element
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Windowing" icon="window-restore" href="/concepts/windowing">
+    Learn about window functions
+  </Card>
+  <Card title="Transforms" icon="arrows-turn-right" href="/concepts/transforms">
+    Apply transformations to your data
+  </Card>
+</CardGroup>

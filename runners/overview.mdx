@@ -1,0 +1,152 @@
+---
+title: Runners Overview
+description: Understanding Apache Beam runners and choosing the right one for your pipeline
+---
+
+Apache Beam runners execute your pipeline on different processing backends. The runner you choose determines where and how your pipeline executes.
+
+## What is a Runner?
+
+A runner translates your Beam pipeline into the API compatible with the backend execution engine. Each runner has different capabilities, performance characteristics, and is optimized for different use cases.
+
+## Available Runners
+
+Apache Beam provides several runners for different execution environments:
+
+### Local Execution
+
+<Card title="DirectRunner" icon="laptop" href="/runners/direct">
+  Executes pipelines locally on your machine. Ideal for development, testing, and debugging.
+</Card>
+
+<Card title="PrismRunner" icon="hexagon" href="/runners/prism">
+  Modern portable local runner authored in Go. Fast startup and excellent for testing.
+</Card>
+
+### Distributed Execution
+
+<Card title="Google Cloud Dataflow" icon="cloud" href="/runners/dataflow">
+  Fully managed service on Google Cloud Platform with autoscaling and optimization.
+</Card>
+
+<Card title="Apache Flink" icon="bolt" href="/runners/flink">
+  Stream and batch processing on Apache Flink clusters.
+</Card>
+
+<Card title="Apache Spark" icon="fire" href="/runners/spark">
+  Execute pipelines on Apache Spark clusters for batch and streaming.
+</Card>
+
+## Choosing a Runner
+
+Consider these factors when selecting a runner:
+
+### Development & Testing
+- **DirectRunner**: Best for local development and testing
+- **PrismRunner**: Fast local testing with portable architecture
+
+### Production Workloads
+
+**Managed Service**
+- **DataflowRunner**: Fully managed, no cluster management, automatic optimization
+
+**Self-Managed**
+- **FlinkRunner**: Strong streaming capabilities, exactly-once processing
+- **SparkRunner**: Leverage existing Spark infrastructure
+
+### Key Considerations
+
+| Feature | DirectRunner | PrismRunner | DataflowRunner | FlinkRunner | SparkRunner |
+|---------|--------------|-------------|----------------|-------------|-------------|
+| **Execution** | Local | Local | Cloud | Cluster | Cluster |
+| **Scaling** | Single machine | Single machine | Autoscaling | Manual | Manual |
+| **Management** | None | None | Fully managed | Self-managed | Self-managed |
+| **Streaming** | Limited | Yes | Yes | Excellent | Yes |
+| **Batch** | Yes | Yes | Yes | Yes | Yes |
+| **Best For** | Testing | Development | Production (GCP) | Streaming apps | Spark users |
+
+## Setting the Runner
+
+Specify the runner when creating your pipeline options:
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+    PipelineOptions options = PipelineOptionsFactory.create();
+    options.setRunner(DataflowRunner.class);
+    
+    Pipeline p = Pipeline.create(options);
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+    import apache_beam as beam
+    from apache_beam.options.pipeline_options import PipelineOptions
+    
+    options = PipelineOptions([
+        '--runner=DataflowRunner',
+    ])
+    
+    with beam.Pipeline(options=options) as p:
+        # Your pipeline code
+    ```
+  </Tab>
+  
+  <Tab title="Go">
+    ```go
+    import (
+        "github.com/apache/beam/sdks/v2/go/pkg/beam"
+        "github.com/apache/beam/sdks/v2/go/pkg/beam/runners/dataflow"
+    )
+    
+    // Runner is specified when executing
+    dataflow.Execute(context.Background(), p)
+    ```
+  </Tab>
+</Tabs>
+
+Or specify via command line:
+
+```bash
+# Java
+mvn compile exec:java -Dexec.mainClass=com.example.MyPipeline \
+  -Dexec.args="--runner=DataflowRunner"
+
+# Python
+python my_pipeline.py --runner=DataflowRunner
+
+# Go
+go run my_pipeline.go --runner=dataflow
+```
+
+## Runner Capabilities
+
+Not all runners support all Beam features. The [Beam Capability Matrix](https://beam.apache.org/documentation/runners/capability-matrix/) documents which features each runner supports.
+
+### Common Capabilities
+- **Bounded/Unbounded PCollections**: All runners support bounded data, most support unbounded
+- **ParDo**: Supported by all runners
+- **GroupByKey**: Supported by all runners
+- **Windowing**: Support varies by runner
+- **State & Timers**: Not supported by DirectRunner, supported by distributed runners
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="DirectRunner" icon="laptop" href="/runners/direct">
+    Get started with local development
+  </Card>
+  
+  <Card title="DataflowRunner" icon="cloud" href="/runners/dataflow">
+    Deploy to Google Cloud
+  </Card>
+  
+  <Card title="FlinkRunner" icon="bolt" href="/runners/flink">
+    Run on Apache Flink
+  </Card>
+  
+  <Card title="SparkRunner" icon="fire" href="/runners/spark">
+    Execute on Apache Spark
+  </Card>
+</CardGroup>

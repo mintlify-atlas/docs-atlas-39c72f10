@@ -1,0 +1,535 @@
+---
+title: 'Cookbook Examples'
+description: 'Common data processing patterns with Apache Beam'
+---
+
+The Beam Cookbook provides practical examples of common data processing patterns. Each example demonstrates a specific technique you can adapt for your own pipelines.
+
+## Overview
+
+These examples show you how to:
+
+- Filter and transform data
+- Join multiple datasets
+- Combine values per key
+- Use side inputs for enrichment
+- Aggregate data with custom combiners
+
+<Note>
+  All cookbook examples use BigQuery as the data source, but the patterns apply to any I/O connector.
+</Note>
+
+## Filtering Data
+
+The FilterExamples pipeline demonstrates multiple filtering techniques and shows how to use pipeline-computed values as side inputs.
+
+### Basic Filtering
+
+Filter data based on field values:
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+static class FilterSingleMonthDataFn extends DoFn<TableRow, TableRow> {
+  Integer monthFilter;
+
+  public FilterSingleMonthDataFn(Integer monthFilter) {
+    this.monthFilter = monthFilter;
+  }
+
+  @ProcessElement
+  public void processElement(ProcessContext c) {
+    TableRow row = c.element();
+    Integer month = (Integer) row.get("month");
+    
+    if (month.equals(this.monthFilter)) {
+      c.output(row);
+    }
+  }
+}
+
+// Use the filter
+PCollection<TableRow> monthFilteredRows = rows
+    .apply(ParDo.of(new FilterSingleMonthDataFn(7)));
+    ```
+
+    **Pattern:** Create a custom DoFn that only outputs elements matching your criteria.
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+class FilterMonthFn(beam.DoFn):
+    def __init__(self, month_filter):
+        self.month_filter = month_filter
+    
+    def process(self, element):
+        if element['month'] == self.month_filter:
+            yield element
+
+# Use the filter
+filtered_rows = rows | beam.ParDo(FilterMonthFn(7))
+    ```
+  </Tab>
+</Tabs>
+
+### Projection
+
+Select specific fields from your data:
+
+```java
+static class ProjectionFn extends DoFn<TableRow, TableRow> {
+  @ProcessElement
+  public void processElement(ProcessContext c) {
+    TableRow row = c.element();
+    
+    // Extract only the fields you need
+    Integer year = Integer.parseInt((String) row.get("year"));
+    Integer month = Integer.parseInt((String) row.get("month"));
+    Integer day = Integer.parseInt((String) row.get("day"));
+    Double meanTemp = Double.parseDouble(row.get("mean_temp").toString());
+    
+    // Create new row with selected fields
+    TableRow outRow = new TableRow()
+        .set("year", year)
+        .set("month", month)
+        .set("day", day)
+        .set("mean_temp", meanTemp);
+        
+    c.output(outRow);
+  }
+}
+
+PCollection<TableRow> projected = rows.apply(ParDo.of(new ProjectionFn()));
+```
+
+**Pattern:** Extract and transform only the fields you need to reduce data size and processing costs.
+
+### Side Inputs for Dynamic Filtering
+
+Use computed values to filter data:
+
+```java
+// Compute global mean temperature
+PCollection<Double> meanTemps = rows.apply(ParDo.of(new ExtractTempFn()));
+final PCollectionView<Double> globalMeanTemp = 
+    meanTemps.apply(Mean.globally()).apply(View.asSingleton());
+
+// Filter using the computed mean as a side input
+PCollection<TableRow> filteredRows = monthFilteredRows.apply(
+    "FilterBelowMean",
+    ParDo.of(new DoFn<TableRow, TableRow>() {
+      @ProcessElement
+      public void processElement(ProcessContext c) {
+        Double meanTemp = Double.parseDouble(
+            c.element().get("mean_temp").toString());
+        Double globalMean = c.sideInput(globalMeanTemp);
+        
+        if (meanTemp < globalMean) {
+          c.output(c.element());
+        }
+      }
+    }).withSideInputs(globalMeanTemp));
+```
+
+**Key concepts:**
+- **Side inputs**: Pass computed values to other transforms
+- **View.asSingleton()**: Convert a PCollection to a single value
+- **Dynamic filtering**: Use pipeline-computed values for filtering
+
+<Steps>
+  <Step title="Compute aggregate value">
+    Calculate the global mean temperature across all data.
+  </Step>
+  <Step title="Create side input view">
+    Convert the computed value to a PCollectionView for use as a side input.
+  </Step>
+  <Step title="Apply filter with side input">
+    Use the computed mean to filter records in a downstream transform.
+  </Step>
+</Steps>
+
+## Joining Data
+
+The JoinExamples pipeline demonstrates how to join two datasets using CoGroupByKey:
+
+```java
+static PCollection<String> joinEvents(
+    PCollection<TableRow> eventsTable, 
+    PCollection<TableRow> countryCodes) {
+  
+  final TupleTag<String> eventInfoTag = new TupleTag<>();
+  final TupleTag<String> countryInfoTag = new TupleTag<>();
+
+  // Transform both collections to KV pairs with country code as key
+  PCollection<KV<String, String>> eventInfo = 
+      eventsTable.apply(ParDo.of(new ExtractEventDataFn()));
+  PCollection<KV<String, String>> countryInfo = 
+      countryCodes.apply(ParDo.of(new ExtractCountryInfoFn()));
+
+  // Join using CoGroupByKey
+  PCollection<KV<String, CoGbkResult>> joined = 
+      KeyedPCollectionTuple.of(eventInfoTag, eventInfo)
+          .and(countryInfoTag, countryInfo)
+          .apply(CoGroupByKey.create());
+
+  // Process joined results
+  PCollection<KV<String, String>> result = joined.apply(
+      "ProcessJoin",
+      ParDo.of(new DoFn<KV<String, CoGbkResult>, KV<String, String>>() {
+        @ProcessElement
+        public void processElement(ProcessContext c) {
+          KV<String, CoGbkResult> e = c.element();
+          String countryCode = e.getKey();
+          String countryName = e.getValue().getOnly(countryInfoTag);
+          
+          // Process all events for this country
+          for (String eventInfo : e.getValue().getAll(eventInfoTag)) {
+            c.output(KV.of(countryCode, 
+                "Country: " + countryName + ", Event: " + eventInfo));
+          }
+        }
+      }));
+
+  return result;
+}
+```
+
+### Extract Join Keys
+
+Transform your data to key-value pairs:
+
+```java
+static class ExtractEventDataFn extends DoFn<TableRow, KV<String, String>> {
+  @ProcessElement
+  public void processElement(ProcessContext c) {
+    TableRow row = c.element();
+    String countryCode = (String) row.get("ActionGeo_CountryCode");
+    String eventInfo = buildEventInfo(row);
+    c.output(KV.of(countryCode, eventInfo));
+  }
+}
+
+static class ExtractCountryInfoFn extends DoFn<TableRow, KV<String, String>> {
+  @ProcessElement
+  public void processElement(ProcessContext c) {
+    TableRow row = c.element();
+    String countryCode = (String) row.get("FIPSCC");
+    String countryName = (String) row.get("HumanName");
+    c.output(KV.of(countryCode, countryName));
+  }
+}
+```
+
+<Steps>
+  <Step title="Transform to KV pairs">
+    Convert both datasets to `PCollection<KV<K, V>>` with the join key as K.
+  </Step>
+  <Step title="Apply CoGroupByKey">
+    Group both collections by the common key using `KeyedPCollectionTuple`.
+  </Step>
+  <Step title="Process joined results">
+    Access values from both collections using `CoGbkResult.getOnly()` or `getAll()`.
+  </Step>
+</Steps>
+
+<Tabs>
+  <Tab title="One-to-One Join">
+    Use `getOnly()` when each key has exactly one value:
+    ```java
+    String countryName = result.getValue().getOnly(countryInfoTag);
+    ```
+  </Tab>
+  
+  <Tab title="One-to-Many Join">
+    Use `getAll()` when a key can have multiple values:
+    ```java
+    for (String eventInfo : result.getValue().getAll(eventInfoTag)) {
+      // Process each event
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Combining Per Key
+
+The CombinePerKeyExamples pipeline shows how to aggregate values for each unique key:
+
+```java
+public static class ConcatWords 
+    implements SerializableFunction<Iterable<String>, String> {
+  @Override
+  public String apply(Iterable<String> input) {
+    StringBuilder result = new StringBuilder();
+    for (String item : input) {
+      if (!item.isEmpty()) {
+        if (result.length() == 0) {
+          result.append(item);
+        } else {
+          result.append(",").append(item);
+        }
+      }
+    }
+    return result.toString();
+  }
+}
+
+// Extract words and play names
+PCollection<KV<String, String>> words = 
+    rows.apply(ParDo.of(new ExtractLargeWordsFn()));
+
+// Combine all play names for each word
+PCollection<KV<String, String>> wordAllPlays = 
+    words.apply(Combine.perKey(new ConcatWords()));
+```
+
+### Built-in Combiners
+
+Beam provides common aggregation functions:
+
+<Tabs>
+  <Tab title="Sum">
+    ```java
+    PCollection<KV<String, Integer>> totals = 
+        data.apply(Sum.integersPerKey());
+    ```
+  </Tab>
+  
+  <Tab title="Mean">
+    ```java
+    PCollection<KV<String, Double>> averages = 
+        data.apply(Mean.perKey());
+    ```
+  </Tab>
+  
+  <Tab title="Min/Max">
+    ```java
+    PCollection<KV<String, Integer>> minimums = 
+        data.apply(Min.integersPerKey());
+        
+    PCollection<KV<String, Integer>> maximums = 
+        data.apply(Max.integersPerKey());
+    ```
+  </Tab>
+  
+  <Tab title="Count">
+    ```java
+    PCollection<KV<String, Long>> counts = 
+        words.apply(Count.perKey());
+    ```
+  </Tab>
+</Tabs>
+
+### Custom Combine Functions
+
+Create custom aggregation logic:
+
+```java
+public static class AverageFn 
+    extends Combine.CombineFn<Integer, AverageFn.Accum, Double> {
+  
+  public static class Accum {
+    int sum = 0;
+    int count = 0;
+  }
+
+  @Override
+  public Accum createAccumulator() {
+    return new Accum();
+  }
+
+  @Override
+  public Accum addInput(Accum accum, Integer input) {
+    accum.sum += input;
+    accum.count++;
+    return accum;
+  }
+
+  @Override
+  public Accum mergeAccumulators(Iterable<Accum> accums) {
+    Accum merged = createAccumulator();
+    for (Accum accum : accums) {
+      merged.sum += accum.sum;
+      merged.count += accum.count;
+    }
+    return merged;
+  }
+
+  @Override
+  public Double extractOutput(Accum accum) {
+    return ((double) accum.sum) / accum.count;
+  }
+}
+
+// Use custom combiner
+PCollection<KV<String, Double>> averages = 
+    data.apply(Combine.perKey(new AverageFn()));
+```
+
+**When to use custom combiners:**
+- Computing statistics beyond built-in functions
+- Optimizing performance with incremental aggregation
+- Implementing domain-specific aggregation logic
+
+## Running Cookbook Examples
+
+### Prerequisites
+
+<Steps>
+  <Step title="Set up BigQuery">
+    Create a BigQuery dataset for output tables.
+  </Step>
+  <Step title="Configure credentials">
+    Set up authentication for your chosen runner.
+  </Step>
+  <Step title="Install dependencies">
+    Ensure you have the Beam SDK and I/O connectors installed.
+  </Step>
+</Steps>
+
+### FilterExamples
+
+```bash
+mvn compile exec:java \
+  -Dexec.mainClass=org.apache.beam.examples.cookbook.FilterExamples \
+  -Dexec.args="--output=YOUR_PROJECT:DATASET.TABLE \
+               --monthFilter=7"
+```
+
+### JoinExamples
+
+```bash
+mvn compile exec:java \
+  -Dexec.mainClass=org.apache.beam.examples.cookbook.JoinExamples \
+  -Dexec.args="--output=./join-results"
+```
+
+### CombinePerKeyExamples
+
+```bash
+mvn compile exec:java \
+  -Dexec.mainClass=org.apache.beam.examples.cookbook.CombinePerKeyExamples \
+  -Dexec.args="--output=YOUR_PROJECT:DATASET.TABLE"
+```
+
+## Pattern Comparison
+
+<CardGroup cols={2}>
+  <Card title="Filtering" icon="filter">
+    **Use when:** You need to reduce dataset size based on criteria
+    
+    **Performance:** Very efficient, happens in parallel
+    
+    **Example:** Keep only records from a specific time period
+  </Card>
+  
+  <Card title="Projection" icon="table-columns">
+    **Use when:** You only need specific fields from your data
+    
+    **Performance:** Reduces memory and I/O costs
+    
+    **Example:** Extract only user ID and timestamp from logs
+  </Card>
+  
+  <Card title="Joining" icon="code-merge">
+    **Use when:** Combining data from multiple sources
+    
+    **Performance:** Can be expensive, requires shuffling
+    
+    **Example:** Enrich events with user profile data
+  </Card>
+  
+  <Card title="Combining" icon="layer-group">
+    **Use when:** Aggregating values per key
+    
+    **Performance:** Efficient with incremental combiners
+    
+    **Example:** Calculate total sales per customer
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Minimize Data Early">
+    Apply filters and projections as early as possible in your pipeline to reduce the amount of data processed by downstream transforms.
+    
+    ```java
+    // Good: Filter before expensive operations
+    PCollection<Record> filtered = input
+        .apply("EarlyFilter", Filter.by(r -> r.isValid()))
+        .apply("ExpensiveTransform", ParDo.of(new ExpensiveFn()));
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Efficient Join Strategies">
+    For small reference data, consider using side inputs instead of CoGroupByKey for better performance.
+    
+    ```java
+    // For small lookup tables
+    PCollectionView<Map<String, String>> countryMap = 
+        countryCodes.apply(View.asMap());
+        
+    PCollection<EnrichedEvent> enriched = events.apply(
+        ParDo.of(new EnrichWithSideInput())
+            .withSideInputs(countryMap));
+    ```
+  </Accordion>
+  
+  <Accordion title="Choose the Right Combiner">
+    Use built-in combiners when possible, as they're optimized for performance. Only create custom combiners when you need specific logic.
+    
+    ```java
+    // Built-in combiners are optimized
+    data.apply(Sum.integersPerKey())  // Preferred
+    
+    // Custom combiner only when needed
+    data.apply(Combine.perKey(new MyComplexAggregation()))
+    ```
+  </Accordion>
+  
+  <Accordion title="Add Metrics for Monitoring">
+    Track important pipeline behavior with counters and distributions.
+    
+    ```java
+    private final Counter filteredRecords = 
+        Metrics.counter(MyDoFn.class, "filteredRecords");
+        
+    @ProcessElement
+    public void processElement(ProcessContext c) {
+      if (shouldFilter(c.element())) {
+        filteredRecords.inc();
+        return;
+      }
+      c.output(c.element());
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="WordCount Examples" href="/examples/wordcount" icon="book-open">
+    Learn Beam fundamentals with the classic WordCount example.
+  </Card>
+  
+  <Card title="Windowing" href="/concepts/windowing" icon="window">
+    Process streaming data with time-based windows.
+  </Card>
+  
+  <Card title="I/O Transforms" href="/io/overview" icon="arrows-left-right">
+    Connect to various data sources and sinks.
+  </Card>
+  
+  <Card title="Advanced Examples" href="/examples/streaming" icon="rocket">
+    Explore streaming pipelines and real-time processing.
+  </Card>
+  
+  <Card title="Testing Pipelines" href="/development" icon="vial">
+    Learn how to test your Beam pipelines.
+  </Card>
+  
+  <Card title="Metrics & Monitoring" href="/concepts/transforms" icon="chart-line">
+    Add observability to your pipelines.
+  </Card>
+</CardGroup>

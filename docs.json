@@ -1,122 +1,128 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Apache Beam",
+  "theme": "sequoia",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#E7532C",
+    "light": "#FF6B3D",
+    "dark": "#C0472A"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/apache/beam"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/apache/beam"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Getting Started",
             "pages": [
               "index",
-              "quickstart",
-              "development"
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/overview",
+              "concepts/programming-model",
+              "concepts/pipelines",
+              "concepts/pcollections",
+              "concepts/transforms",
+              "concepts/windowing",
+              "concepts/triggers"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "SDKs",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "sdks/java",
+              "sdks/python",
+              "sdks/go",
+              "sdks/typescript"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Runners",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "runners/overview",
+              "runners/direct",
+              "runners/dataflow",
+              "runners/flink",
+              "runners/spark",
+              "runners/prism"
+            ]
+          },
+          {
+            "group": "I/O Connectors",
+            "pages": [
+              "io/overview",
+              "io/built-in",
+              "io/custom"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Java SDK",
             "pages": [
-              "api-reference/introduction"
+              "api/java/pipeline",
+              "api/java/transforms",
+              "api/java/io",
+              "api/java/coders"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Python SDK",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/python/pipeline",
+              "api/python/transforms",
+              "api/python/io",
+              "api/python/coders"
+            ]
+          },
+          {
+            "group": "Go SDK",
+            "pages": [
+              "api/go/pipeline",
+              "api/go/transforms",
+              "api/go/io"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Common Patterns",
+            "pages": [
+              "examples/wordcount",
+              "examples/cookbook"
+            ]
+          },
+          {
+            "group": "Advanced Examples",
+            "pages": [
+              "examples/streaming",
+              "examples/sql",
+              "examples/ml"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

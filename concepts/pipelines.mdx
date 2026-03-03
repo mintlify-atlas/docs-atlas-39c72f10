@@ -1,0 +1,645 @@
+---
+title: 'Pipelines'
+description: 'Create and configure Apache Beam pipelines for data processing'
+---
+
+A `Pipeline` encapsulates your entire data processing task, from start to finish. It represents a directed acyclic graph (DAG) of data transformations.
+
+## What is a Pipeline?
+
+A Pipeline manages the execution of data processing operations. According to the source code:
+
+<CodeGroup>
+```java Java (Pipeline.java:74-82)
+/**
+ * A {@link Pipeline} manages a directed acyclic graph of {@link PTransform PTransforms}, and the
+ * {@link PCollection PCollections} that the {@link PTransform PTransforms} consume and produce.
+ *
+ * Each {@link Pipeline} is self-contained and isolated from any other {@link Pipeline}. The
+ * {@link PValue PValues} that are inputs and outputs of each of a {@link Pipeline Pipeline's}
+ * {@link PTransform PTransforms} are also owned by that {@link Pipeline}.
+ */
+```
+
+```python Python (pipeline.py:18-28)
+"""Pipeline, the top-level Beam object.
+
+A pipeline holds a DAG of data transforms. Conceptually the nodes of the DAG
+are transforms (PTransform objects) and the edges are values (mostly 
+PCollection objects). The transforms take as inputs one or more PValues and 
+output one or more PValues.
+"""
+```
+
+```go Go (pipeline.go:72-76)
+// Pipeline manages a directed acyclic graph of primitive PTransforms, and the
+// PCollections that the PTransforms consume and produce. Each Pipeline is
+// self-contained and isolated from any other Pipeline.
+type Pipeline struct {
+    real *graph.Graph
+}
+```
+</CodeGroup>
+
+## Creating a Pipeline
+
+### Basic Pipeline Creation
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+
+// Create default options
+PipelineOptions options = PipelineOptionsFactory.create();
+
+// Create the pipeline
+Pipeline p = Pipeline.create(options);
+```
+
+```python Python
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions
+
+# Method 1: Using context manager (recommended)
+with beam.Pipeline() as p:
+    # Pipeline code here
+    pass  # Automatically runs at end of block
+
+# Method 2: Manual execution
+options = PipelineOptions()
+p = beam.Pipeline(options=options)
+# ... build pipeline ...
+result = p.run()
+result.wait_until_finish()
+```
+
+```go Go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam"
+
+func main() {
+    // Initialize Beam
+    beam.Init()
+    
+    // Create pipeline
+    p := beam.NewPipeline()
+    s := p.Root()  // Get root scope
+    
+    // ... build pipeline using scope s ...
+}
+```
+</CodeGroup>
+
+## Pipeline Options
+
+Pipeline options configure pipeline execution, including runner selection and runtime parameters.
+
+### Standard Pipeline Options
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.options.*;
+import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
+
+// Parse from command line
+PipelineOptions options = PipelineOptionsFactory
+    .fromArgs(args)
+    .withValidation()
+    .create();
+
+// Configure for specific runner (e.g., Dataflow)
+DataflowPipelineOptions dataflowOptions = 
+    options.as(DataflowPipelineOptions.class);
+dataflowOptions.setRunner(DataflowRunner.class);
+dataflowOptions.setProject("my-project-id");
+dataflowOptions.setRegion("us-central1");
+dataflowOptions.setTempLocation("gs://my-bucket/temp");
+
+Pipeline p = Pipeline.create(dataflowOptions);
+```
+
+```python Python
+from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.options.pipeline_options import StandardOptions
+
+# Create options from command line arguments
+pipeline_options = PipelineOptions([
+    '--runner=DataflowRunner',
+    '--project=my-project-id',
+    '--region=us-central1',
+    '--temp_location=gs://my-bucket/temp',
+    '--staging_location=gs://my-bucket/staging'
+])
+
+# Or configure programmatically
+options = PipelineOptions()
+options.view_as(StandardOptions).runner = 'DataflowRunner'
+
+with beam.Pipeline(options=pipeline_options) as p:
+    # Pipeline logic
+    pass
+```
+
+```go Go
+import (
+    "flag"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/x/beamx"
+)
+
+var (
+    runner = flag.String("runner", "direct", "Pipeline runner")
+)
+
+func main() {
+    flag.Parse()
+    beam.Init()
+    
+    p := beam.NewPipeline()
+    s := p.Root()
+    
+    // Build pipeline...
+    
+    // Run with specified runner
+    if err := beamx.Run(context.Background(), p); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+</CodeGroup>
+
+### Custom Pipeline Options
+
+Define custom options for application-specific parameters:
+
+<CodeGroup>
+```java Java
+import org.apache.beam.sdk.options.*;
+
+public interface MyOptions extends PipelineOptions {
+    @Description("Input file path or pattern")
+    @Default.String("gs://my-bucket/input/*.txt")
+    String getInputFile();
+    void setInputFile(String value);
+    
+    @Description("Output directory")
+    @Validation.Required
+    String getOutput();
+    void setOutput(String value);
+    
+    @Description("Minimum word length to count")
+    @Default.Integer(5)
+    Integer getMinWordLength();
+    void setMinWordLength(Integer value);
+}
+
+// Usage
+MyOptions options = PipelineOptionsFactory
+    .fromArgs(args)
+    .withValidation()
+    .as(MyOptions.class);
+
+Pipeline p = Pipeline.create(options);
+
+// Access custom options
+String inputFile = options.getInputFile();
+Integer minLength = options.getMinWordLength();
+```
+
+```python Python
+from apache_beam.options.pipeline_options import PipelineOptions
+
+class MyOptions(PipelineOptions):
+    @classmethod
+    def _add_argparse_args(cls, parser):
+        parser.add_argument(
+            '--input',
+            default='gs://my-bucket/input/*.txt',
+            help='Input file path or pattern')
+        parser.add_argument(
+            '--output',
+            required=True,
+            help='Output directory')
+        parser.add_argument(
+            '--min_word_length',
+            type=int,
+            default=5,
+            help='Minimum word length to count')
+
+# Parse options
+options = MyOptions()
+
+with beam.Pipeline(options=options) as p:
+    # Access custom options
+    input_file = options.input
+    min_length = options.min_word_length
+```
+
+```go Go
+import "flag"
+
+var (
+    input = flag.String(
+        "input", 
+        "gs://my-bucket/input/*.txt",
+        "Input file path or pattern")
+    output = flag.String(
+        "output", 
+        "",
+        "Output directory (required)")
+    minWordLength = flag.Int(
+        "min_word_length",
+        5,
+        "Minimum word length to count")
+)
+
+func main() {
+    flag.Parse()
+    beam.Init()
+    
+    if *output == "" {
+        log.Fatal("--output is required")
+    }
+    
+    p := beam.NewPipeline()
+    // Use *input, *output, *minWordLength
+}
+```
+</CodeGroup>
+
+## Running a Pipeline
+
+### Direct Execution
+
+<CodeGroup>
+```java Java
+Pipeline p = Pipeline.create(options);
+
+// Build pipeline
+p.apply(...);
+
+// Run and wait for completion
+PipelineResult result = p.run();
+result.waitUntilFinish();
+```
+
+```python Python
+# Method 1: Context manager (auto-runs)
+with beam.Pipeline(options=options) as p:
+    # Build pipeline
+    pass  # Runs automatically
+
+# Method 2: Manual execution
+p = beam.Pipeline(options=options)
+# Build pipeline
+result = p.run()
+result.wait_until_finish()
+```
+
+```go Go
+import (
+    "context"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/x/beamx"
+)
+
+p := beam.NewPipeline()
+s := p.Root()
+
+// Build pipeline
+
+// Run pipeline
+if err := beamx.Run(context.Background(), p); err != nil {
+    log.Fatalf("Failed to execute job: %v", err)
+}
+```
+</CodeGroup>
+
+### Running with Different Runners
+
+<Tabs>
+  <Tab title="DirectRunner">
+    The DirectRunner executes pipelines locally for development and testing.
+    
+    ```bash
+    # Java
+    mvn compile exec:java -Dexec.mainClass=com.example.MyPipeline \
+        -Pdirect-runner
+    
+    # Python
+    python my_pipeline.py --runner=DirectRunner
+    
+    # Go
+    go run my_pipeline.go --runner=direct
+    ```
+  </Tab>
+  
+  <Tab title="DataflowRunner">
+    The DataflowRunner executes on Google Cloud Dataflow.
+    
+    ```bash
+    # Java
+    mvn compile exec:java -Dexec.mainClass=com.example.MyPipeline \
+        -Pdataflow-runner \
+        -Dexec.args="--project=my-project \
+                     --region=us-central1 \
+                     --tempLocation=gs://my-bucket/temp"
+    
+    # Python  
+    python my_pipeline.py \
+        --runner=DataflowRunner \
+        --project=my-project \
+        --region=us-central1 \
+        --temp_location=gs://my-bucket/temp
+    
+    # Go
+    go run my_pipeline.go \
+        --runner=dataflow \
+        --project=my-project \
+        --region=us-central1 \
+        --temp_location=gs://my-bucket/temp
+    ```
+  </Tab>
+  
+  <Tab title="FlinkRunner">
+    The FlinkRunner executes on Apache Flink.
+    
+    ```bash
+    # Java
+    mvn compile exec:java -Dexec.mainClass=com.example.MyPipeline \
+        -Pflink-runner \
+        -Dexec.args="--runner=FlinkRunner \
+                     --flinkMaster=localhost:8081"
+    
+    # Python
+    python my_pipeline.py \
+        --runner=FlinkRunner \
+        --flink_master=localhost:8081
+    
+    # Go
+    go run my_pipeline.go \
+        --runner=flink \
+        --flink_master=localhost:8081
+    ```
+  </Tab>
+  
+  <Tab title="SparkRunner">
+    The SparkRunner executes on Apache Spark.
+    
+    ```bash
+    # Java
+    mvn compile exec:java -Dexec.mainClass=com.example.MyPipeline \
+        -Pspark-runner \
+        -Dexec.args="--runner=SparkRunner \
+                     --sparkMaster=spark://host:port"
+    
+    # Python
+    python my_pipeline.py \
+        --runner=SparkRunner \
+        --spark_master_url=spark://host:port
+    ```
+  </Tab>
+</Tabs>
+
+## Pipeline Lifecycle
+
+### 1. Construction Phase
+
+During construction, you build the pipeline DAG by applying transforms:
+
+```java
+Pipeline p = Pipeline.create(options);
+
+// Each apply() adds nodes to the DAG
+PCollection<String> lines = p.apply("Read", TextIO.read().from("input.txt"));
+PCollection<String> words = lines.apply("Split", new SplitWords());
+PCollection<KV<String, Long>> counts = words.apply("Count", Count.perElement());
+
+// No actual data processing happens yet
+```
+
+### 2. Validation Phase
+
+Before execution, the pipeline is validated:
+
+- Type checking ensures transforms are compatible
+- Graph structure is verified (no cycles, etc.)
+- Runner capabilities are checked
+
+### 3. Optimization Phase
+
+The runner may optimize the pipeline:
+
+- Fusing compatible transforms
+- Reordering operations
+- Eliminating redundant work
+
+### 4. Execution Phase
+
+```java
+PipelineResult result = p.run();
+```
+
+The runner executes the pipeline:
+
+- Distributes work across workers
+- Processes data elements
+- Manages state and checkpointing
+- Handles failures and retries
+
+### 5. Monitoring and Completion
+
+```java
+// Wait for completion
+result.waitUntilFinish();
+
+// Or monitor state
+PipelineResult.State state = result.getState();
+if (state == PipelineResult.State.DONE) {
+    // Pipeline completed successfully
+}
+```
+
+## Complete Example: Word Count Pipeline
+
+Here's a complete pipeline from the Apache Beam examples:
+
+<CodeGroup>
+```java Java (MinimalWordCount.java)
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.Count;
+import org.apache.beam.sdk.transforms.Filter;
+import org.apache.beam.sdk.transforms.FlatMapElements;
+import org.apache.beam.sdk.transforms.MapElements;
+import org.apache.beam.sdk.values.KV;
+import org.apache.beam.sdk.values.TypeDescriptors;
+import java.util.Arrays;
+
+public class MinimalWordCount {
+    public static void main(String[] args) {
+        // Create pipeline options
+        PipelineOptions options = PipelineOptionsFactory.create();
+        
+        // Create the pipeline
+        Pipeline p = Pipeline.create(options);
+        
+        // Read input
+        p.apply(TextIO.read().from("gs://apache-beam-samples/shakespeare/kinglear.txt"))
+        
+            // Split into words
+            .apply(FlatMapElements.into(TypeDescriptors.strings())
+                .via((String line) -> Arrays.asList(line.split("[^\\p{L}]+"))))
+        
+            // Filter empty strings
+            .apply(Filter.by((String word) -> !word.isEmpty()))
+        
+            // Count occurrences
+            .apply(Count.perElement())
+        
+            // Format output
+            .apply(MapElements.into(TypeDescriptors.strings())
+                .via((KV<String, Long> wordCount) ->
+                    wordCount.getKey() + ": " + wordCount.getValue()))
+        
+            // Write output
+            .apply(TextIO.write().to("wordcounts"));
+        
+        // Run the pipeline
+        p.run().waitUntilFinish();
+    }
+}
+```
+
+```python Python (wordcount_minimal.py)
+import apache_beam as beam
+from apache_beam.io import ReadFromText, WriteToText
+from apache_beam.options.pipeline_options import PipelineOptions
+import re
+
+def run():
+    options = PipelineOptions()
+    
+    with beam.Pipeline(options=options) as p:
+        (
+            p 
+            # Read input
+            | ReadFromText('gs://dataflow-samples/shakespeare/kinglear.txt')
+            
+            # Split into words  
+            | 'Split' >> beam.FlatMap(
+                lambda x: re.findall(r"[A-Za-z']+", x))
+            
+            # Pair with 1
+            | 'PairWithOne' >> beam.Map(lambda x: (x, 1))
+            
+            # Group and sum
+            | 'GroupAndSum' >> beam.CombinePerKey(sum)
+            
+            # Format output
+            | 'Format' >> beam.Map(
+                lambda word_count: '%s: %s' % (word_count[0], word_count[1]))
+            
+            # Write output
+            | WriteToText('wordcounts')
+        )
+
+if __name__ == '__main__':
+    run()
+```
+
+```go Go (wordcount.go)
+package main
+
+import (
+    "context"
+    "flag"
+    "fmt"
+    "regexp"
+    
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/io/textio"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/stats"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/x/beamx"
+)
+
+var (
+    input  = flag.String("input", "gs://apache-beam-samples/shakespeare/kinglear.txt", "Input file")
+    output = flag.String("output", "wordcounts", "Output file")
+)
+
+var wordRE = regexp.MustCompile(`[a-zA-Z]+('[a-z])?`)
+
+func extractWords(line string, emit func(string)) {
+    for _, word := range wordRE.FindAllString(line, -1) {
+        emit(word)
+    }
+}
+
+func formatFn(w string, c int) string {
+    return fmt.Sprintf("%s: %v", w, c)
+}
+
+func main() {
+    flag.Parse()
+    beam.Init()
+    
+    // Create pipeline
+    p := beam.NewPipeline()
+    s := p.Root()
+    
+    // Read input
+    lines := textio.Read(s, *input)
+    
+    // Extract words
+    words := beam.ParDo(s, extractWords, lines)
+    
+    // Count words
+    counted := stats.Count(s, words)
+    
+    // Format output
+    formatted := beam.ParDo(s, formatFn, counted)
+    
+    // Write output
+    textio.Write(s, *output, formatted)
+    
+    // Run pipeline
+    if err := beamx.Run(context.Background(), p); err != nil {
+        log.Fatalf("Failed to execute job: %v", err)
+    }
+}
+```
+</CodeGroup>
+
+## Best Practices
+
+<Note>
+**Immutability**: Pipelines are immutable after construction. You cannot modify a pipeline after calling `run()`.
+</Note>
+
+<Warning>
+**Resource Management**: Always clean up resources properly. Use try-with-resources (Java) or context managers (Python) when appropriate.
+</Warning>
+
+<Tip>
+**Testing**: Use `TestPipeline` for unit testing. It provides the same API but runs in-memory for fast testing.
+</Tip>
+
+### Performance Considerations
+
+1. **Minimize I/O**: Read and write efficiently
+2. **Avoid shuffles**: Reduce GroupByKey operations when possible
+3. **Use appropriate runners**: Choose the right runner for your use case
+4. **Monitor metrics**: Track pipeline performance and optimize bottlenecks
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="PCollections" icon="database" href="/concepts/pcollections">
+    Learn about distributed data collections
+  </Card>
+  <Card title="Transforms" icon="arrows-turn-right" href="/concepts/transforms">
+    Explore data transformation operations
+  </Card>
+</CardGroup>

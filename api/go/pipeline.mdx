@@ -1,0 +1,347 @@
+---
+title: Pipeline API
+description: Core pipeline creation and execution for Apache Beam Go SDK
+---
+
+The pipeline package provides the foundational types and functions for creating and managing Apache Beam pipelines in Go.
+
+## Pipeline
+
+Pipeline manages a directed acyclic graph of primitive PTransforms and the PCollections that they consume and produce. Each Pipeline is self-contained and isolated from any other Pipeline.
+
+### NewPipeline
+
+Creates a new empty pipeline.
+
+```go
+func NewPipeline() *Pipeline
+```
+
+<ParamField path="Returns" type="*Pipeline">
+  A new pipeline instance ready for transform construction
+</ParamField>
+
+**Example:**
+
+```go
+import "github.com/apache/beam/sdks/v2/go/pkg/beam"
+
+p := beam.NewPipeline()
+root := p.Root()
+// Add transforms to root scope
+```
+
+### Root
+
+Returns the root scope of the pipeline.
+
+```go
+func (p *Pipeline) Root() Scope
+```
+
+<ParamField path="Returns" type="Scope">
+  The root scope used for inserting transforms
+</ParamField>
+
+### Build
+
+Validates the pipeline and returns a lower-level representation for execution. Called by runners only.
+
+```go
+func (p *Pipeline) Build() ([]*graph.MultiEdge, []*graph.Node, error)
+```
+
+<ParamField path="Returns" type="([]*graph.MultiEdge, []*graph.Node, error)">
+  Graph edges, nodes, and any validation error
+</ParamField>
+
+## Scope
+
+Scope is a hierarchical grouping for composite transforms. Scopes can be enclosed in other scopes and form a tree structure.
+
+### Type Definition
+
+```go
+type Scope struct {
+    // Internal fields - use provided methods
+}
+```
+
+### IsValid
+
+Returns true if the Scope is valid. Any use of an invalid Scope will panic.
+
+```go
+func (s Scope) IsValid() bool
+```
+
+<ParamField path="Returns" type="bool">
+  Whether the scope is valid for use
+</ParamField>
+
+### Scope
+
+Returns a sub-scope with the given name.
+
+```go
+func (s Scope) Scope(name string) Scope
+```
+
+<ParamField path="name" type="string">
+  Name for the sub-scope (may be augmented for uniqueness)
+</ParamField>
+
+<ParamField path="Returns" type="Scope">
+  A new sub-scope nested within this scope
+</ParamField>
+
+**Example:**
+
+```go
+root := p.Root()
+processing := root.Scope("ProcessData")
+filtering := processing.Scope("Filter")
+```
+
+### WithContext
+
+Creates a named subscope with an attached context for the represented composite transform.
+
+```go
+func (s Scope) WithContext(ctx context.Context, name string) Scope
+```
+
+<ParamField path="ctx" type="context.Context">
+  Context to attach to the scope
+</ParamField>
+
+<ParamField path="name" type="string">
+  Name for the sub-scope
+</ParamField>
+
+<ParamField path="Returns" type="Scope">
+  A new sub-scope with the attached context
+</ParamField>
+
+## PCollection
+
+PCollection is an immutable collection of values. A PCollection can contain either a bounded or unbounded number of elements.
+
+### Type Definition
+
+```go
+type PCollection struct {
+    // Internal fields - use provided methods
+}
+```
+
+### IsValid
+
+Returns true if the PCollection is valid and part of a Pipeline.
+
+```go
+func (p PCollection) IsValid() bool
+```
+
+<ParamField path="Returns" type="bool">
+  Whether the PCollection is valid
+</ParamField>
+
+### Type
+
+Returns the full type of the elements in the PCollection.
+
+```go
+func (p PCollection) Type() FullType
+```
+
+<ParamField path="Returns" type="FullType">
+  The concrete type of elements (e.g., int, string, KV&lt;int,string&gt;)
+</ParamField>
+
+### Coder
+
+Returns the coder for the collection.
+
+```go
+func (p PCollection) Coder() Coder
+```
+
+<ParamField path="Returns" type="Coder">
+  The coder used for encoding/decoding elements
+</ParamField>
+
+### SetCoder
+
+Sets the coder for the collection.
+
+```go
+func (p PCollection) SetCoder(c Coder) error
+```
+
+<ParamField path="c" type="Coder">
+  The coder to use for this PCollection
+</ParamField>
+
+<ParamField path="Returns" type="error">
+  Error if the coder type doesn't match the PCollection type
+</ParamField>
+
+## Pipeline Execution
+
+### Run
+
+Executes the pipeline using the selected registered runner.
+
+```go
+func Run(ctx context.Context, runner string, p *Pipeline) (PipelineResult, error)
+```
+
+<ParamField path="ctx" type="context.Context">
+  Context for pipeline execution
+</ParamField>
+
+<ParamField path="runner" type="string">
+  Name of the registered runner (e.g., "direct", "dataflow", "flink")
+</ParamField>
+
+<ParamField path="p" type="*Pipeline">
+  The pipeline to execute
+</ParamField>
+
+<ParamField path="Returns" type="(PipelineResult, error)">
+  Pipeline result with metrics and job ID, or error if execution fails
+</ParamField>
+
+**Example:**
+
+```go
+import (
+    "context"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam"
+    "github.com/apache/beam/sdks/v2/go/pkg/beam/x/beamx"
+)
+
+p := beam.NewPipeline()
+root := p.Root()
+
+// Build your pipeline
+data := beam.Create(root, "hello", "world")
+// ... more transforms
+
+// Execute with beamx helper (uses --runner flag)
+if err := beamx.Run(context.Background(), p); err != nil {
+    log.Fatalf("Pipeline failed: %v", err)
+}
+```
+
+### PipelineResult
+
+Interface returned by pipeline execution containing metrics and job information.
+
+```go
+type PipelineResult interface {
+    Metrics() metrics.Results
+    JobID() string
+}
+```
+
+#### Metrics
+
+Returns the metrics collected during pipeline execution.
+
+```go
+Metrics() metrics.Results
+```
+
+#### JobID
+
+Returns the job identifier from the runner.
+
+```go
+JobID() string
+```
+
+## Create
+
+Inserts a fixed set of values into the pipeline.
+
+### Create
+
+Creates a PCollection from a fixed non-empty set of values.
+
+```go
+func Create(s Scope, values ...any) PCollection
+```
+
+<ParamField path="s" type="Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="values" type="...any">
+  One or more values of the same type
+</ParamField>
+
+<ParamField path="Returns" type="PCollection">
+  A PCollection containing the specified values
+</ParamField>
+
+**Example:**
+
+```go
+data := beam.Create(root, "apple", "banana", "cherry")
+numbers := beam.Create(root, 1, 2, 3, 4, 5)
+```
+
+### CreateList
+
+Creates a PCollection from a slice or array. Supports empty collections.
+
+```go
+func CreateList(s Scope, list any) PCollection
+```
+
+<ParamField path="s" type="Scope">
+  The scope to insert the transform into
+</ParamField>
+
+<ParamField path="list" type="any">
+  A slice or array of values
+</ParamField>
+
+<ParamField path="Returns" type="PCollection">
+  A PCollection containing the list elements
+</ParamField>
+
+**Example:**
+
+```go
+items := []string{"a", "b", "c"}
+data := beam.CreateList(root, items)
+
+empty := []int{}
+emptyCol := beam.CreateList(root, empty)  // Valid, unlike Create
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Pipeline Construction">
+    - Create one pipeline per program execution
+    - Use meaningful scope names for debugging and monitoring
+    - Build the entire pipeline before calling Run
+    - Pipelines can safely be executed concurrently
+  </Accordion>
+
+  <Accordion title="Scope Organization">
+    - Use Scope() to create logical groupings of transforms
+    - Scope names appear in monitoring and visualization tools
+    - Nested scopes form namespaces for transform identification
+  </Accordion>
+
+  <Accordion title="PCollection Usage">
+    - PCollections are immutable - transforms create new ones
+    - Check IsValid() when handling PCollections conditionally
+    - PCollections cannot be shared between pipelines
+  </Accordion>
+</AccordionGroup>

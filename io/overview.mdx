@@ -1,0 +1,392 @@
+---
+title: "I/O Connectors Overview"
+description: "Learn how Apache Beam reads and writes data with I/O connectors"
+---
+
+## Introduction to I/O in Apache Beam
+
+Apache Beam provides a rich set of I/O connectors for reading from and writing to various data sources and sinks. I/O transforms enable your pipelines to interact with external storage systems, databases, message queues, and more.
+
+## Core I/O Concepts
+
+### Sources and Sinks
+
+Beam pipelines typically follow this pattern:
+
+1. **Read** data from a source
+2. **Transform** the data
+3. **Write** results to a sink
+
+```python
+import apache_beam as beam
+
+with beam.Pipeline() as pipeline:
+    (pipeline
+     | 'Read' >> beam.io.ReadFromText('input.txt')
+     | 'Transform' >> beam.Map(lambda x: x.upper())
+     | 'Write' >> beam.io.WriteToText('output.txt'))
+```
+
+### Reading Data
+
+Beam provides two primary patterns for reading data:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import apache_beam as beam
+    from apache_beam.io import ReadFromText
+
+    # Pattern 1: Direct read transform
+    with beam.Pipeline() as p:
+        lines = p | ReadFromText('gs://bucket/file.txt')
+
+    # Pattern 2: Using Read with a source
+    from apache_beam.io.textio import _TextSource
+    
+    with beam.Pipeline() as p:
+        lines = p | beam.io.Read(_TextSource('file.txt'))
+    ```
+  </Tab>
+  <Tab title="Java">
+    ```java
+    import org.apache.beam.sdk.Pipeline;
+    import org.apache.beam.sdk.io.TextIO;
+    import org.apache.beam.sdk.values.PCollection;
+
+    Pipeline p = Pipeline.create();
+    
+    // Reading from text files
+    PCollection<String> lines = p.apply(
+        TextIO.read().from("gs://bucket/file.txt")
+    );
+    
+    p.run().waitUntilFinish();
+    ```
+  </Tab>
+  <Tab title="Go">
+    ```go
+    import (
+        "github.com/apache/beam/sdks/v2/go/pkg/beam"
+        "github.com/apache/beam/sdks/v2/go/pkg/beam/io/textio"
+    )
+
+    func main() {
+        p := beam.NewPipeline()
+        s := p.Root()
+        
+        lines := textio.Read(s, "gs://bucket/file.txt")
+        
+        beam.Run(context.Background(), p)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Writing Data
+
+Writing data follows a similar pattern:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import apache_beam as beam
+
+    with beam.Pipeline() as p:
+        (p 
+         | beam.Create(['Hello', 'World'])
+         | beam.io.WriteToText('output'))
+    ```
+  </Tab>
+  <Tab title="Java">
+    ```java
+    import org.apache.beam.sdk.io.TextIO;
+
+    Pipeline p = Pipeline.create();
+    
+    p.apply(Create.of("Hello", "World"))
+     .apply(TextIO.write().to("output"));
+     
+    p.run().waitUntilFinish();
+    ```
+  </Tab>
+</Tabs>
+
+## Bounded vs Unbounded Data
+
+### Bounded Sources (Batch)
+
+Bounded sources read a finite amount of data, such as files or database tables.
+
+**Characteristics:**
+- Fixed dataset size
+- Processing completes when all data is read
+- Examples: Files (text, Avro, Parquet), database snapshots
+
+```python
+import apache_beam as beam
+
+# Reading bounded data from files
+with beam.Pipeline() as p:
+    data = p | beam.io.ReadFromText('input/*.txt')
+    # Process data...
+```
+
+### Unbounded Sources (Streaming)
+
+Unbounded sources continuously read data from streams.
+
+**Characteristics:**
+- Infinite or ongoing data streams
+- Processing continues indefinitely
+- Requires windowing for aggregations
+- Examples: Pub/Sub, Kafka, Kinesis
+
+```python
+import apache_beam as beam
+from apache_beam.io.gcp.pubsub import ReadFromPubSub
+
+# Reading unbounded data from Pub/Sub
+with beam.Pipeline() as p:
+    messages = p | ReadFromPubSub(topic='projects/my-project/topics/my-topic')
+    # Apply windowing and process...
+```
+
+## File-Based vs Streaming I/O
+
+### File-Based I/O
+
+File-based I/O connectors read and write data to file systems:
+
+- **Local files**: `/path/to/file.txt`
+- **Cloud Storage**: `gs://`, `s3://`, `wasb://`
+- **HDFS**: `hdfs://namenode:port/path`
+
+**Common file formats:**
+
+| Format | Connector | Use Case |
+|--------|-----------|----------|
+| Text | TextIO | Plain text, CSV, JSON lines |
+| Avro | AvroIO | Schema evolution, compact binary |
+| Parquet | ParquetIO | Columnar storage, analytics |
+| TFRecord | TFRecordIO | TensorFlow integration |
+
+### Streaming I/O
+
+Streaming I/O connectors interact with message queues and streaming platforms:
+
+| System | Connector | Type |
+|--------|-----------|------|
+| Google Pub/Sub | PubSubIO | Unbounded |
+| Apache Kafka | KafkaIO | Unbounded |
+| AWS Kinesis | KinesisIO | Unbounded |
+| Azure Event Hubs | EventHubsIO | Unbounded |
+
+## Data Transformation Flow
+
+A typical I/O pattern in Beam:
+
+```python
+import apache_beam as beam
+from apache_beam.io import ReadFromText, WriteToText
+
+def process_data(element):
+    return element.upper()
+
+with beam.Pipeline() as p:
+    (p
+     | 'Read Source' >> ReadFromText('input.txt')
+     | 'Transform' >> beam.Map(process_data)
+     | 'Write Sink' >> WriteToText('output.txt'))
+```
+
+## Splittable Sources
+
+Beam automatically splits bounded sources for parallel processing:
+
+```python
+from apache_beam.io import BoundedSource
+
+class CustomSource(BoundedSource):
+    def split(self, desired_bundle_size, start_position=None, stop_position=None):
+        # Split source into bundles for parallel processing
+        pass
+    
+    def estimate_size(self):
+        # Estimate total size in bytes
+        pass
+    
+    def read(self, range_tracker):
+        # Read data within the given range
+        pass
+```
+
+## Compression Support
+
+Many file-based I/O connectors support compression:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from apache_beam.io.filesystem import CompressionTypes
+
+    # Reading compressed files
+    p | beam.io.ReadFromText(
+        'input.txt.gz',
+        compression_type=CompressionTypes.GZIP
+    )
+
+    # Writing compressed files
+    data | beam.io.WriteToText(
+        'output.txt',
+        compression_type=CompressionTypes.GZIP
+    )
+    ```
+  </Tab>
+  <Tab title="Java">
+    ```java
+    import org.apache.beam.sdk.io.Compression;
+
+    // Reading compressed files
+    p.apply(TextIO.read()
+        .from("input.txt.gz")
+        .withCompression(Compression.GZIP));
+
+    // Writing compressed files
+    data.apply(TextIO.write()
+        .to("output.txt")
+        .withCompression(Compression.GZIP));
+    ```
+  </Tab>
+</Tabs>
+
+**Supported compression types:**
+- GZIP (`.gz`)
+- BZIP2 (`.bz2`)
+- DEFLATE
+- ZSTD
+- LZO
+- AUTO (automatic detection)
+
+## Configuration Patterns
+
+### Basic Configuration
+
+<ParamField path="file_pattern" type="string" required>
+  File path or glob pattern to read/write
+</ParamField>
+
+<ParamField path="compression_type" type="CompressionTypes">
+  Compression format (AUTO, GZIP, BZIP2, etc.)
+</ParamField>
+
+<ParamField path="validate" type="boolean" default="true">
+  Whether to validate the source during pipeline construction
+</ParamField>
+
+### Advanced Options
+
+<ParamField path="skip_header_lines" type="int" default="0">
+  Number of header lines to skip (TextIO)
+</ParamField>
+
+<ParamField path="coder" type="Coder">
+  Custom coder for encoding/decoding elements
+</ParamField>
+
+<ParamField path="shard_name_template" type="string">
+  Template for output shard naming
+</ParamField>
+
+## Performance Considerations
+
+### File-Based I/O
+
+1. **Sharding**: Distribute reads/writes across multiple workers
+2. **Compression**: Balance CPU usage vs. I/O bandwidth
+3. **Bundle Size**: Optimize for parallelism and overhead
+
+### Streaming I/O
+
+1. **Watermarks**: Track event time progress
+2. **Checkpointing**: Enable fault tolerance
+3. **Throughput**: Configure batch sizes and parallelism
+
+## Error Handling
+
+```python
+import apache_beam as beam
+from apache_beam.io import ReadFromText
+
+class SafeRead(beam.DoFn):
+    def process(self, element):
+        try:
+            yield element.decode('utf-8')
+        except Exception as e:
+            # Log or write to dead letter queue
+            yield beam.pvalue.TaggedOutput('errors', element)
+
+with beam.Pipeline() as p:
+    results = (
+        p 
+        | ReadFromText('input.txt')
+        | beam.ParDo(SafeRead()).with_outputs('errors', main='processed')
+    )
+    
+    results.processed | 'Write Success' >> beam.io.WriteToText('output.txt')
+    results.errors | 'Write Errors' >> beam.io.WriteToText('errors.txt')
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Built-in I/O Connectors" icon="plug" href="/io/built-in">
+    Explore the comprehensive list of built-in connectors for various data sources
+  </Card>
+  <Card title="Custom I/O Transforms" icon="code" href="/io/custom">
+    Learn how to create custom sources and sinks for your specific needs
+  </Card>
+</CardGroup>
+
+## Common Use Cases
+
+### ETL Pipelines
+
+```python
+import apache_beam as beam
+
+with beam.Pipeline() as p:
+    (p
+     | 'Extract' >> beam.io.ReadFromAvro('source.avro')
+     | 'Transform' >> beam.Map(transform_fn)
+     | 'Load' >> beam.io.WriteToBigQuery('project:dataset.table'))
+```
+
+### Stream Processing
+
+```python
+import apache_beam as beam
+from apache_beam.io.gcp.pubsub import ReadFromPubSub
+
+with beam.Pipeline() as p:
+    (p
+     | 'Read Stream' >> ReadFromPubSub(subscription='my-sub')
+     | 'Parse' >> beam.Map(json.loads)
+     | 'Window' >> beam.WindowInto(beam.window.FixedWindows(60))
+     | 'Aggregate' >> beam.CombinePerKey(sum)
+     | 'Write' >> beam.io.WriteToText('results'))
+```
+
+### Data Migration
+
+```python
+import apache_beam as beam
+
+with beam.Pipeline() as p:
+    (p
+     | 'Read JDBC' >> beam.io.ReadFromJdbc(
+           table_name='source_table',
+           driver_class_name='org.postgresql.Driver',
+           jdbc_url='jdbc:postgresql://host:5432/db')
+     | 'Write Parquet' >> beam.io.WriteToParquet('output.parquet'))
+```

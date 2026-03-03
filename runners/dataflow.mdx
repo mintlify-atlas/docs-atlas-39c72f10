@@ -1,0 +1,613 @@
+---
+title: Google Cloud Dataflow Runner
+description: Fully managed runner for executing pipelines on Google Cloud Platform
+---
+
+The DataflowRunner executes Apache Beam pipelines on Google Cloud Dataflow, a fully managed service for stream and batch data processing.
+
+## Overview
+
+Google Cloud Dataflow provides:
+- **Fully Managed**: No cluster management required
+- **Autoscaling**: Automatic resource scaling based on workload
+- **Optimization**: Automatic pipeline optimization and execution
+- **Monitoring**: Built-in monitoring and logging with Cloud Monitoring
+- **Security**: Integration with Google Cloud IAM and VPC
+
+## When to Use DataflowRunner
+
+<CardGroup cols={2}>
+  <Card title="Best For" icon="check">
+    - Production workloads on GCP
+    - Large-scale data processing
+    - Auto-scaling requirements
+    - Managed infrastructure
+    - Integration with GCP services
+  </Card>
+  
+  <Card title="Consider Alternatives" icon="info">
+    - Small local datasets (use DirectRunner)
+    - Non-GCP environments
+    - Existing Spark/Flink clusters
+    - Cost-sensitive batch jobs
+  </Card>
+</CardGroup>
+
+## Setup and Configuration
+
+### Prerequisites
+
+1. **Google Cloud Project**: Create a project in Google Cloud Console
+2. **Enable APIs**: Enable Cloud Dataflow, Compute Engine, and Cloud Storage APIs
+3. **Authentication**: Set up authentication credentials
+4. **Cloud Storage**: Create a GCS bucket for staging and temp files
+
+### Dependencies
+
+<Tabs>
+  <Tab title="Java">
+    Add the Dataflow runner dependency:
+    
+    ```xml
+    <dependency>
+      <groupId>org.apache.beam</groupId>
+      <artifactId>beam-runners-google-cloud-dataflow-java</artifactId>
+      <version>{beam-version}</version>
+    </dependency>
+    ```
+    
+    For Gradle:
+    ```gradle
+    implementation 'org.apache.beam:beam-runners-google-cloud-dataflow-java:{beam-version}'
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    Install Beam with GCP extras:
+    ```bash
+    pip install apache-beam[gcp]
+    ```
+  </Tab>
+  
+  <Tab title="Go">
+    Import the Dataflow runner:
+    ```go
+    import "github.com/apache/beam/sdks/v2/go/pkg/beam/runners/dataflow"
+    ```
+  </Tab>
+</Tabs>
+
+### Authentication
+
+Set up Google Cloud credentials:
+
+```bash
+# Install gcloud CLI
+curl https://sdk.cloud.google.com | bash
+
+# Authenticate
+gcloud auth application-default login
+
+# Set your project
+gcloud config set project YOUR_PROJECT_ID
+```
+
+## Running a Pipeline
+
+### Basic Example
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+    import org.apache.beam.runners.dataflow.DataflowRunner;
+    import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
+    import org.apache.beam.sdk.Pipeline;
+    import org.apache.beam.sdk.options.PipelineOptionsFactory;
+    
+    public class MyDataflowPipeline {
+      public static void main(String[] args) {
+        DataflowPipelineOptions options = 
+            PipelineOptionsFactory.fromArgs(args)
+                .withValidation()
+                .as(DataflowPipelineOptions.class);
+        
+        // Required: Set the runner
+        options.setRunner(DataflowRunner.class);
+        
+        // Required: GCP project
+        options.setProject("your-project-id");
+        
+        // Required: GCP region
+        options.setRegion("us-central1");
+        
+        // Required: Staging location
+        options.setStagingLocation("gs://your-bucket/staging");
+        
+        // Required: Temp location
+        options.setTempLocation("gs://your-bucket/temp");
+        
+        Pipeline p = Pipeline.create(options);
+        
+        // Build your pipeline
+        p.apply(/* your transforms */);
+        
+        // Execute on Dataflow
+        p.run();
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+    import apache_beam as beam
+    from apache_beam.options.pipeline_options import PipelineOptions
+    
+    def run():
+        options = PipelineOptions([
+            '--runner=DataflowRunner',
+            '--project=your-project-id',
+            '--region=us-central1',
+            '--staging_location=gs://your-bucket/staging',
+            '--temp_location=gs://your-bucket/temp',
+            '--job_name=my-dataflow-job',
+        ])
+        
+        with beam.Pipeline(options=options) as p:
+            # Build your pipeline
+            (p 
+             | beam.Create(['Hello', 'World'])
+             | beam.Map(print))
+    
+    if __name__ == '__main__':
+        run()
+    ```
+  </Tab>
+  
+  <Tab title="Go">
+    ```go
+    package main
+    
+    import (
+        "context"
+        "flag"
+        
+        "github.com/apache/beam/sdks/v2/go/pkg/beam"
+        "github.com/apache/beam/sdks/v2/go/pkg/beam/runners/dataflow"
+    )
+    
+    var (
+        project      = flag.String("project", "", "GCP project")
+        region       = flag.String("region", "us-central1", "GCP region")
+        stagingLocation = flag.String("staging_location", "", "Staging location")
+        tempLocation = flag.String("temp_location", "", "Temp location")
+    )
+    
+    func main() {
+        flag.Parse()
+        beam.Init()
+        
+        p := beam.NewPipeline()
+        s := p.Root()
+        
+        // Build your pipeline
+        
+        if err := dataflow.Execute(context.Background(), p); err != nil {
+            panic(err)
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Command Line Execution
+
+```bash
+# Java
+mvn compile exec:java -Dexec.mainClass=com.example.MyPipeline \
+  -Dexec.args="--runner=DataflowRunner \
+               --project=your-project-id \
+               --region=us-central1 \
+               --stagingLocation=gs://your-bucket/staging \
+               --tempLocation=gs://your-bucket/temp"
+
+# Python
+python my_pipeline.py \
+  --runner=DataflowRunner \
+  --project=your-project-id \
+  --region=us-central1 \
+  --staging_location=gs://your-bucket/staging \
+  --temp_location=gs://your-bucket/temp
+```
+
+## DataflowPipelineOptions
+
+Key configuration options for the DataflowRunner:
+
+### Required Options
+
+<ParamField path="project" type="string" required>
+  Google Cloud project ID.
+  
+  ```java
+  options.setProject("my-gcp-project");
+  ```
+</ParamField>
+
+<ParamField path="region" type="string" required>
+  Google Cloud region for job execution (e.g., `us-central1`, `europe-west1`).
+  
+  ```java
+  options.setRegion("us-central1");
+  ```
+</ParamField>
+
+<ParamField path="stagingLocation" type="string" required>
+  Cloud Storage path for staging files (must start with `gs://`).
+  
+  ```java
+  options.setStagingLocation("gs://my-bucket/staging");
+  ```
+</ParamField>
+
+<ParamField path="tempLocation" type="string" required>
+  Cloud Storage path for temporary files.
+  
+  ```java
+  options.setTempLocation("gs://my-bucket/temp");
+  ```
+</ParamField>
+
+### Worker Configuration
+
+<ParamField path="numWorkers" type="integer" default="autoscaling">
+  Initial number of workers. Dataflow will autoscale from this value.
+  
+  ```java
+  options.setNumWorkers(10);
+  ```
+</ParamField>
+
+<ParamField path="maxNumWorkers" type="integer">
+  Maximum number of workers for autoscaling.
+  
+  ```java
+  options.setMaxNumWorkers(100);
+  ```
+</ParamField>
+
+<ParamField path="workerMachineType" type="string" default="n1-standard-1">
+  Compute Engine machine type for workers.
+  
+  ```java
+  options.setWorkerMachineType("n1-standard-4");
+  ```
+</ParamField>
+
+<ParamField path="diskSizeGb" type="integer" default="250">
+  Disk size in GB for each worker.
+  
+  ```java
+  options.setDiskSizeGb(500);
+  ```
+</ParamField>
+
+### Streaming Options
+
+<ParamField path="streaming" type="boolean" default="false">
+  Enable streaming mode for unbounded sources.
+  
+  ```java
+  options.setStreaming(true);
+  ```
+</ParamField>
+
+<ParamField path="enableStreamingEngine" type="boolean" default="false">
+  Use Dataflow Streaming Engine for streaming pipelines.
+  
+  ```java
+  options.setEnableStreamingEngine(true);
+  ```
+</ParamField>
+
+### Network Configuration
+
+<ParamField path="network" type="string">
+  Compute Engine network for launching workers.
+  
+  ```java
+  options.setNetwork("projects/my-project/global/networks/my-network");
+  ```
+</ParamField>
+
+<ParamField path="subnetwork" type="string">
+  Compute Engine subnetwork for launching workers.
+  
+  ```java
+  options.setSubnetwork("regions/us-central1/subnetworks/my-subnet");
+  ```
+</ParamField>
+
+<ParamField path="usePublicIps" type="boolean" default="true">
+  Whether workers should have public IP addresses.
+  
+  ```java
+  options.setUsePublicIps(false); // Private IPs only
+  ```
+</ParamField>
+
+## Advanced Configuration
+
+### Autoscaling
+
+Dataflow automatically scales workers based on workload:
+
+```java
+DataflowPipelineOptions options = 
+    PipelineOptionsFactory.as(DataflowPipelineOptions.class);
+
+// Set autoscaling parameters
+options.setAutoscalingAlgorithm(
+    DataflowPipelineWorkerPoolOptions.AutoscalingAlgorithmType.THROUGHPUT_BASED
+);
+options.setNumWorkers(2);        // Initial workers
+options.setMaxNumWorkers(20);    // Maximum workers
+```
+
+### Flex Templates
+
+Create reusable Dataflow templates:
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+    DataflowPipelineOptions options = 
+        PipelineOptionsFactory.as(DataflowPipelineOptions.class);
+    
+    // Specify template location
+    options.setTemplateLocation("gs://my-bucket/templates/my-template");
+    
+    Pipeline p = Pipeline.create(options);
+    // Build pipeline
+    p.run(); // Creates template instead of running
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+    options = PipelineOptions([
+        '--runner=DataflowRunner',
+        '--template_location=gs://my-bucket/templates/my-template',
+        # other options...
+    ])
+    ```
+  </Tab>
+</Tabs>
+
+### Update Existing Jobs
+
+Update a running Dataflow job:
+
+```java
+options.setUpdate(true);
+options.setJobName("existing-job-name");
+```
+
+```bash
+python my_pipeline.py \
+  --runner=DataflowRunner \
+  --update \
+  --job_name=existing-job-name \
+  # other options...
+```
+
+## Monitoring and Debugging
+
+### Cloud Console
+
+Monitor jobs in the [Dataflow Console](https://console.cloud.google.com/dataflow):
+- View job graph and metrics
+- Monitor worker resource usage
+- Inspect logs and errors
+- Track data throughput
+
+### Logging
+
+Logs are automatically sent to Cloud Logging:
+
+<Tabs>
+  <Tab title="Java">
+    ```java
+    import org.slf4j.Logger;
+    import org.slf4j.LoggerFactory;
+    
+    public class MyDoFn extends DoFn<String, String> {
+      private static final Logger LOG = LoggerFactory.getLogger(MyDoFn.class);
+      
+      @ProcessElement
+      public void processElement(ProcessContext c) {
+        LOG.info("Processing: {}", c.element());
+        c.output(c.element());
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Python">
+    ```python
+    import logging
+    
+    class MyDoFn(beam.DoFn):
+        def process(self, element):
+            logging.info(f'Processing: {element}')
+            yield element
+    ```
+  </Tab>
+</Tabs>
+
+### Metrics
+
+Dataflow provides built-in metrics:
+
+```java
+import org.apache.beam.sdk.metrics.Counter;
+import org.apache.beam.sdk.metrics.Metrics;
+
+public class MyDoFn extends DoFn<String, String> {
+  private final Counter elementsProcessed = 
+      Metrics.counter(MyDoFn.class, "elementsProcessed");
+  
+  @ProcessElement
+  public void processElement(ProcessContext c) {
+    elementsProcessed.inc();
+    c.output(c.element());
+  }
+}
+```
+
+## Best Practices
+
+### Cost Optimization
+
+1. **Use Appropriate Machine Types**
+   ```java
+   // For CPU-intensive workloads
+   options.setWorkerMachineType("n1-highcpu-4");
+   
+   // For memory-intensive workloads
+   options.setWorkerMachineType("n1-highmem-4");
+   ```
+
+2. **Enable Autoscaling**
+   ```java
+   options.setAutoscalingAlgorithm(AutoscalingAlgorithmType.THROUGHPUT_BASED);
+   options.setMaxNumWorkers(50);
+   ```
+
+3. **Use Streaming Engine** (for streaming jobs)
+   ```java
+   options.setStreaming(true);
+   options.setEnableStreamingEngine(true);
+   ```
+
+### Performance
+
+1. **Optimize Windowing**
+   - Use appropriate window sizes
+   - Consider allowed lateness for late data
+
+2. **Batch Elements**
+   - Use `GroupIntoBatches` for downstream API calls
+   - Reduce per-element overhead
+
+3. **Use Side Inputs Wisely**
+   - Keep side inputs small
+   - Consider using external lookups for large datasets
+
+### Security
+
+1. **Use VPC Networks**
+   ```java
+   options.setNetwork("projects/my-project/global/networks/my-vpc");
+   options.setUsePublicIps(false);
+   ```
+
+2. **Service Accounts**
+   ```java
+   options.setServiceAccount("my-service-account@my-project.iam.gserviceaccount.com");
+   ```
+
+3. **Encryption**
+   - Data is encrypted at rest and in transit by default
+   - Use Customer Managed Encryption Keys (CMEK) for additional control
+
+## Streaming vs Batch
+
+### Batch Pipeline
+
+```java
+DataflowPipelineOptions options = 
+    PipelineOptionsFactory.as(DataflowPipelineOptions.class);
+
+options.setRunner(DataflowRunner.class);
+// streaming defaults to false
+
+Pipeline p = Pipeline.create(options);
+p.apply(TextIO.read().from("gs://bucket/input/*"))
+    .apply(/* transforms */)
+    .apply(TextIO.write().to("gs://bucket/output"));
+```
+
+### Streaming Pipeline
+
+```java
+DataflowPipelineOptions options = 
+    PipelineOptionsFactory.as(DataflowPipelineOptions.class);
+
+options.setRunner(DataflowRunner.class);
+options.setStreaming(true);
+options.setEnableStreamingEngine(true);
+
+Pipeline p = Pipeline.create(options);
+p.apply(PubsubIO.readStrings().fromTopic("projects/my-project/topics/my-topic"))
+    .apply(/* transforms */)
+    .apply(PubsubIO.writeStrings().to("projects/my-project/topics/output-topic"));
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="Job fails with 'Quota exceeded' error">
+    Increase quotas in the GCP Console:
+    - Go to IAM & Admin > Quotas
+    - Filter by service (Compute Engine)
+    - Request quota increase
+  </Accordion>
+  
+  <Accordion title="Workers fail to start">
+    Check:
+    - Service account permissions
+    - Network/firewall configuration
+    - Region availability
+    - Machine type availability in the region
+  </Accordion>
+  
+  <Accordion title="High costs">
+    Optimize:
+    - Reduce worker machine sizes
+    - Set appropriate max workers
+    - Use Flex templates for repeated jobs
+    - Enable Streaming Engine for streaming
+    - Set appropriate worker disk sizes
+  </Accordion>
+  
+  <Accordion title="Slow performance">
+    Consider:
+    - Increasing worker count or machine type
+    - Optimizing transforms (reduce shuffles)
+    - Using Combiner functions
+    - Partitioning data appropriately
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Dataflow Console" icon="cloud" href="https://console.cloud.google.com/dataflow">
+    Monitor and manage your Dataflow jobs
+  </Card>
+  
+  <Card title="FlinkRunner" icon="bolt" href="/runners/flink">
+    Alternative for self-managed clusters
+  </Card>
+  
+  <Card title="Monitoring Guide" icon="chart-line">
+    Learn about metrics and monitoring
+  </Card>
+  
+  <Card title="Pricing" icon="dollar-sign" href="https://cloud.google.com/dataflow/pricing">
+    Understand Dataflow pricing
+  </Card>
+</CardGroup>
