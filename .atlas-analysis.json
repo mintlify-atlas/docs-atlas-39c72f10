@@ -1,0 +1,142 @@
+{
+  "projectType": "framework",
+  "projectName": "Apache Beam",
+  "projectDescription": "A unified programming model for batch and streaming data processing pipelines with multi-language SDKs and pluggable execution runners.",
+  "theme": "sequoia",
+  "primaryColor": "#E7532C",
+  "lightColor": "#FF6B3D",
+  "darkColor": "#C0472A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/overview",
+              "concepts/programming-model",
+              "concepts/pipelines",
+              "concepts/pcollections",
+              "concepts/transforms",
+              "concepts/windowing",
+              "concepts/triggers"
+            ]
+          },
+          {
+            "group": "SDKs",
+            "pages": [
+              "sdks/java",
+              "sdks/python",
+              "sdks/go",
+              "sdks/typescript"
+            ]
+          },
+          {
+            "group": "Runners",
+            "pages": [
+              "runners/overview",
+              "runners/direct",
+              "runners/dataflow",
+              "runners/flink",
+              "runners/spark",
+              "runners/prism"
+            ]
+          },
+          {
+            "group": "I/O Connectors",
+            "pages": [
+              "io/overview",
+              "io/built-in",
+              "io/custom"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Java SDK",
+            "pages": [
+              "api/java/pipeline",
+              "api/java/transforms",
+              "api/java/io",
+              "api/java/coders"
+            ]
+          },
+          {
+            "group": "Python SDK",
+            "pages": [
+              "api/python/pipeline",
+              "api/python/transforms",
+              "api/python/io",
+              "api/python/coders"
+            ]
+          },
+          {
+            "group": "Go SDK",
+            "pages": [
+              "api/go/pipeline",
+              "api/go/transforms",
+              "api/go/io"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Common Patterns",
+            "pages": [
+              "examples/wordcount",
+              "examples/cookbook"
+            ]
+          },
+          {
+            "group": "Advanced Examples",
+            "pages": [
+              "examples/streaming",
+              "examples/sql",
+              "examples/ml"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Unified batch and streaming model",
+    "Multi-language SDKs (Java, Python, Go, TypeScript)",
+    "Portable pipelines across execution engines",
+    "Rich set of I/O connectors",
+    "Advanced windowing and triggering",
+    "Built-in transforms and composite operations",
+    "Support for multiple runners (Dataflow, Flink, Spark, etc.)",
+    "Schema-aware PCollections"
+  ],
+  "publicApiSurface": [
+    "Pipeline",
+    "PCollection",
+    "PTransform",
+    "DoFn",
+    "ParDo",
+    "GroupByKey",
+    "Combine",
+    "Flatten",
+    "Window",
+    "Trigger",
+    "Coder",
+    "Read/Write transforms",
+    "PipelineRunner",
+    "PipelineOptions"
+  ]
+}
